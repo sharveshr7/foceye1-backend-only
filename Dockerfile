@@ -3,7 +3,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV and ReportLab
+# Ensure unbuffered python output for real-time production logging
+ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT=production
+
+# Install system dependencies for OpenCV, Headless Graphics, and ReportLab
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgl1 \

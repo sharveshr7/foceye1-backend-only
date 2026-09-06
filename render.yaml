@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: foceye-backend
+    name: foceye1-backend-only
     env: docker
     dockerfilePath: Dockerfile
     region: oregon

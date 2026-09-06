@@ -5,7 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = (
+        os.getenv("ENVIRONMENT")
+        or ("production" if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID") else "development")
+    )
     PORT: int = 8000
     HOST: str = "0.0.0.0"
     
@@ -14,7 +17,7 @@ class Settings(BaseSettings):
         "*",
         "https://foceye.vercel.app",
         "https://foceye-frontend.vercel.app",
-        "https://foceye-backend.onrender.com"
+        "https://foceye1-backend-only.onrender.com"
     ]
     
     @field_validator("CORS_ORIGINS", mode="before")
