@@ -17,6 +17,13 @@ async def generate_insights(
         bcea_score=req.bcea_score,
         fixation_stability=req.fixation_stability,
         saccadic_latency_ms=req.saccadic_latency_ms,
-        adherence_rate=req.adherence_rate
+        adherence_rate=req.adherence_rate,
+        horizontal_gaze_range_deg=req.horizontal_gaze_range_deg,
+        vertical_gaze_range_deg=req.vertical_gaze_range_deg,
+        pursuit_gain=req.pursuit_gain,
+        blink_rate_bpm=req.blink_rate_bpm,
+        incomplete_blink_pct=req.incomplete_blink_pct,
+        calibration_accuracy=req.calibration_accuracy,
+        total_frames_sampled=req.total_frames_sampled,
     )
     return AIInsightResponse(**analysis)

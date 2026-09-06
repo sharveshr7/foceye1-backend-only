@@ -22,6 +22,8 @@ class TherapySessionCreate(BaseModel):
     bcea_95: Optional[float] = 2.4
     gaze_points: Optional[List[GazePoint]] = []
     clinical_notes: Optional[str] = ""
+    language: Optional[str] = "en"
+    repetitions: Optional[int] = 0
 
 
 class TherapySessionResponse(TherapySessionCreate):

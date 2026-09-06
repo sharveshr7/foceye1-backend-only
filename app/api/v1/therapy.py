@@ -112,8 +112,23 @@ async def log_therapy_session(
         session_data["bcea_68"] = bcea_68["bcea_deg2"]
         session_data["bcea_95"] = bcea_95["bcea_deg2"]
 
-    # Exclude non-database column gaze_points from insertion payload
-    insert_payload = {k: v for k, v in session_data.items() if k != "gaze_points"}
+    # Format language and repetitions into clinical notes for persistent clinical documentation
+    lang_code = (session_in.language or "en").upper()
+    reps_val = session_in.repetitions or 0
+    tag = f"[Lang: {lang_code} | Reps: {reps_val}]"
+    if session_data.get("clinical_notes"):
+        if tag not in session_data["clinical_notes"]:
+            session_data["clinical_notes"] = f"{tag} {session_data['clinical_notes']}".strip()
+    else:
+        session_data["clinical_notes"] = tag
+
+    # DB columns supported in therapy_sessions
+    db_columns = {
+        "id", "patient_id", "exercise_type", "duration_seconds",
+        "fixation_score", "saccadic_score", "convergence_score",
+        "overall_score", "bcea_68", "bcea_95", "clinical_notes", "created_at"
+    }
+    insert_payload = {k: v for k, v in session_data.items() if k in db_columns}
     supabase.table("therapy_sessions").insert(insert_payload).execute()
     
     # Update patient last_session date
