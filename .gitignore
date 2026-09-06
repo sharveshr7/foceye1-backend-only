@@ -1,0 +1,27 @@
+# Environment and secrets
+.env
+.env.*
+.env.local
+!.env.example
+.agents/
+skills-lock.json
+
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
