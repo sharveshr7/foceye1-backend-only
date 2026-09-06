@@ -9,14 +9,12 @@ class Settings(BaseSettings):
     PORT: int = 8000
     HOST: str = "0.0.0.0"
     
-    # CORS
+    # CORS Production Origins
     CORS_ORIGINS: List[str] = [
         "*",
         "https://foceye.vercel.app",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "https://foceye-frontend.vercel.app",
+        "https://foceye-backend.onrender.com"
     ]
     
     @field_validator("CORS_ORIGINS", mode="before")
