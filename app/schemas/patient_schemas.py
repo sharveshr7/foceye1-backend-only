@@ -6,9 +6,13 @@ class PatientCreate(BaseModel):
     name: str
     age: int
     gender: str
-    condition: str
+    condition: Optional[str] = "Pending Eye Test"
+    initial_observation: Optional[str] = None
+    clinical_status: Optional[str] = "EYE_TEST_PENDING"
+    observed_pattern: Optional[str] = None
+    recommended_therapy: Optional[str] = None
     icd10: Optional[str] = "H53.00"
-    stage: Optional[str] = "Active Therapy"
+    stage: Optional[str] = "EYE_TEST_PENDING"
     adherence: Optional[int] = 100
     visual_acuity_left: Optional[str] = "20/20"
     visual_acuity_right: Optional[str] = "20/20"
@@ -20,6 +24,10 @@ class PatientUpdate(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = None
     condition: Optional[str] = None
+    initial_observation: Optional[str] = None
+    clinical_status: Optional[str] = None
+    observed_pattern: Optional[str] = None
+    recommended_therapy: Optional[str] = None
     icd10: Optional[str] = None
     stage: Optional[str] = None
     adherence: Optional[int] = None
