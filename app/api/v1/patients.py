@@ -11,7 +11,10 @@ router = APIRouter(prefix="/patients", tags=["Patients EMR"])
 
 @router.get("", response_model=List[PatientResponse])
 async def list_patients(
-    search: Optional[str] = Query(None, description="Search by name or condition"),
+    search: Optional[str] = Query(None, description="Search by name, ID, or condition"),
+    status: Optional[str] = Query(None, description="Filter by clinical stage (e.g. EYE_TEST_PENDING, THERAPY_RECOMMENDED)"),
+    limit: int = Query(50, ge=1, le=200, description="Max patient records to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
     user: UserProfile = Depends(get_current_user)
 ):
     res = supabase.table("patients").select("*").execute()
@@ -20,9 +23,18 @@ async def list_patients(
         s = search.lower()
         data = [
             p for p in data 
-            if s in p.get("name", "").lower() or s in p.get("condition", "").lower()
+            if s in str(p.get("name", "")).lower() 
+            or s in str(p.get("condition", "")).lower()
+            or s in str(p.get("id", "")).lower()
         ]
-    return data
+    if status:
+        st = status.upper()
+        data = [
+            p for p in data
+            if str(p.get("stage", "")).upper() == st 
+            or str(p.get("clinical_status", "")).upper() == st
+        ]
+    return data[offset:offset + limit]
 
 
 @router.get("/{patient_id}", response_model=PatientResponse)

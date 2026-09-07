@@ -16,6 +16,7 @@ class GazeConnectionManager:
 
     def __init__(self):
         self.active_sessions: Dict[str, Set[WebSocket]] = {}
+        self.total_streamed_frames: int = 0
 
     async def connect(self, session_id: str, websocket: WebSocket):
         await websocket.accept()
@@ -32,6 +33,7 @@ class GazeConnectionManager:
         logger.info(f"WebSocket client disconnected from session {session_id}")
 
     async def broadcast_bytes(self, session_id: str, data: bytes, sender: WebSocket):
+        self.total_streamed_frames += 1
         if session_id in self.active_sessions:
             for connection in list(self.active_sessions[session_id]):
                 if connection != sender:
@@ -42,6 +44,7 @@ class GazeConnectionManager:
                         self.disconnect(session_id, connection)
 
     async def broadcast_json(self, session_id: str, data: dict, sender: WebSocket):
+        self.total_streamed_frames += 1
         if session_id in self.active_sessions:
             for connection in list(self.active_sessions[session_id]):
                 if connection != sender:
@@ -53,6 +56,24 @@ class GazeConnectionManager:
 
 
 manager = GazeConnectionManager()
+
+
+@router.get("/api/v1/telemetry/stats", tags=["Real-time Gaze Telemetry"])
+async def get_telemetry_stats():
+    """
+    Returns real-time telemetry server metrics including active rooms and connected observers.
+    """
+    total_connections = sum(len(conns) for conns in manager.active_sessions.values())
+    return {
+        "status": "online",
+        "active_rooms": len(manager.active_sessions),
+        "total_active_connections": total_connections,
+        "total_gazepoints_streamed": manager.total_streamed_frames,
+        "rooms": [
+            {"session_id": sid, "subscribers": len(conns)}
+            for sid, conns in manager.active_sessions.items()
+        ]
+    }
 
 
 @router.websocket("/ws/gaze/{session_id}")
@@ -67,7 +88,11 @@ async def gaze_websocket_endpoint(websocket: WebSocket, session_id: str):
             elif "text" in message and message["text"]:
                 try:
                     payload = json.loads(message["text"])
-                    await manager.broadcast_json(session_id, payload, sender=websocket)
+                    # Handle heartbeat ping/pong
+                    if isinstance(payload, dict) and payload.get("type") == "ping":
+                        await websocket.send_json({"type": "pong", "timestamp": payload.get("timestamp")})
+                    else:
+                        await manager.broadcast_json(session_id, payload, sender=websocket)
                 except json.JSONDecodeError:
                     pass
     except WebSocketDisconnect:

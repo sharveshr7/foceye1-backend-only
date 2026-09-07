@@ -46,6 +46,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_security_and_timing_headers(request, call_next):
+    try:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+    except Exception as exc:
+        logger.exception(f"Unhandled server error on path {request.url.path}: {exc}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "InternalServerError",
+                "message": "An unexpected error occurred in the FOCEYE clinical engine.",
+                "detail": str(exc) if settings.ENVIRONMENT != "production" else None
+            }
+        )
+
+
 # API v1 Routers
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(patients_router, prefix="/api/v1")

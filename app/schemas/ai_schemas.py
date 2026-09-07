@@ -18,6 +18,7 @@ class AIInsightRequest(BaseModel):
     incomplete_blink_pct: Optional[float] = None
     calibration_accuracy: Optional[float] = None
     total_frames_sampled: Optional[int] = None
+    voms_scores: Optional[Dict[str, Any]] = None
 
 
 class AIInsightResponse(BaseModel):

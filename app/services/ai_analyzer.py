@@ -2,7 +2,8 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
 from app.core.config import settings
 
@@ -12,8 +13,11 @@ logger = logging.getLogger("foceye.ai")
 class AIAnalyzerService:
     """
     Diagnostic biomarker evaluation using Gemini Flash (via Google Generative AI SDK
-    or direct REST API) with evidence-based clinical heuristic fallback.
+    or direct REST API) with evidence-based clinical heuristic fallback and in-memory TTL caching.
     """
+
+    _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+    _CACHE_TTL_SECONDS = 600.0  # 10 minutes
 
     @staticmethod
     async def analyze_patient_metrics(
@@ -30,8 +34,18 @@ class AIAnalyzerService:
         incomplete_blink_pct: Optional[float] = None,
         calibration_accuracy: Optional[float] = None,
         total_frames_sampled: Optional[int] = None,
+        voms_scores: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         
+        # Check cache
+        cache_key = f"{condition}_{age}_{bcea_score}_{fixation_stability}_{saccadic_latency_ms}_{adherence_rate}_{horizontal_gaze_range_deg}_{vertical_gaze_range_deg}_{pursuit_gain}_{blink_rate_bpm}_{incomplete_blink_pct}_{calibration_accuracy}_{total_frames_sampled}_{voms_scores}"
+        now = time.time()
+        if cache_key in AIAnalyzerService._cache:
+            cached_time, cached_val = AIAnalyzerService._cache[cache_key]
+            if now - cached_time < AIAnalyzerService._CACHE_TTL_SECONDS:
+                logger.info("Returning cached AI analysis result.")
+                return cached_val
+
         # Resolve Gemini API Key from settings or environment
         api_key = (
             settings.GEMINI_API_KEY 
@@ -90,6 +104,18 @@ class AIAnalyzerService:
         - Actual Frames Tracked: {frames}
         """
 
+        if voms_scores:
+            prompt += f"""
+        Vestibular / Ocular-Motor Screening (VOMS Concussion Protocol):
+        - Headache Provocation: {voms_scores.get('headache', 0)} / 10
+        - Dizziness Provocation: {voms_scores.get('dizziness', 0)} / 10
+        - Nausea Provocation: {voms_scores.get('nausea', 0)} / 10
+        - Fogginess Provocation: {voms_scores.get('fogginess', 0)} / 10
+        - Near Point of Convergence (NPC) Breakpoint: {voms_scores.get('npcCm', 5.0)} cm (Abnormal > 5.0 cm)
+        - VOMS Clinical Sign: {"POSITIVE for Vestibular/Ocular Dysfunction or Concussion" if voms_scores.get('isPositive') else "NEGATIVE / Normal physiological tolerance"}
+        Note: If VOMS is positive, emphasize return-to-learn / return-to-play graduated safety protocols in recommendations.
+        """
+
         if api_key and "mock" not in api_key.lower() and not api_key.startswith("your-"):
             # Method 1: Direct Async Gemini REST API via httpx (fast, non-blocking, reliable)
             candidate_models = [settings.GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-3.7-flash"]
@@ -116,7 +142,9 @@ class AIAnalyzerService:
                                 raw_text = match.group(0)
                             data = json.loads(raw_text)
                             data["source"] = f"Gemini AI ({model_name})"
-                            return AIAnalyzerService._ensure_schema(data, cal_acc, frames)
+                            res = AIAnalyzerService._ensure_schema(data, cal_acc, frames)
+                            AIAnalyzerService._cache[cache_key] = (now, res)
+                            return res
                         else:
                             logger.warning(f"Gemini REST API ({model_name}) returned status {resp.status_code}: {resp.text[:120]}")
                 except Exception as rest_err:
@@ -139,13 +167,15 @@ class AIAnalyzerService:
                     cleaned_text = match.group(0)
                 data = json.loads(cleaned_text)
                 data["source"] = f"Gemini SDK ({settings.GEMINI_MODEL})"
-                return AIAnalyzerService._ensure_schema(data, cal_acc, frames)
+                res = AIAnalyzerService._ensure_schema(data, cal_acc, frames)
+                AIAnalyzerService._cache[cache_key] = (now, res)
+                return res
 
             except Exception as sdk_err:
                 logger.warning(f"Google Generative AI SDK call failed: {sdk_err}")
 
         # Method 3: Resilient clinical heuristic fallback engine
-        return AIAnalyzerService._heuristic_clinical_eval(
+        res = AIAnalyzerService._heuristic_clinical_eval(
             condition=condition,
             age=age,
             bcea_score=bcea_score,
@@ -159,7 +189,10 @@ class AIAnalyzerService:
             incomplete_blink_pct=inc_blinks,
             calibration_accuracy=cal_acc,
             total_frames_sampled=frames,
+            voms_scores=voms_scores,
         )
+        AIAnalyzerService._cache[cache_key] = (now, res)
+        return res
 
     @staticmethod
     def _ensure_schema(data: Dict[str, Any], cal_acc: float, frames: int) -> Dict[str, Any]:
@@ -192,6 +225,7 @@ class AIAnalyzerService:
         incomplete_blink_pct: float = 10.0,
         calibration_accuracy: float = 95.0,
         total_frames_sampled: int = 60,
+        voms_scores: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         
         is_insufficient = calibration_accuracy < 85.0 or total_frames_sampled < 20
@@ -282,6 +316,20 @@ class AIAnalyzerService:
                 "recommendation": "Maintain regular 15-minute daily sessions"
             }
         ]
+
+        if voms_scores and voms_scores.get("isPositive"):
+            risk = "High"
+            summary += f" Positive VOMS neuro-screening: provocation delta of {voms_scores.get('provocationDelta', 2)} and NPC {voms_scores.get('npcCm', 5.0)}cm indicate vestibular-ocular disruption."
+            observed_findings.append(f"VOMS Concussion Screen Positive: Headache {voms_scores.get('headache', 0)}/10, Dizziness {voms_scores.get('dizziness', 0)}/10, Nausea {voms_scores.get('nausea', 0)}/10, Fogginess {voms_scores.get('fogginess', 0)}/10.")
+            possible_concerns.append("Elevated symptom provocation during ocular-vestibular challenge consistent with mild concussion / vestibular dysfunction.")
+            recommendations.append("Graduated Return-to-Learn and Return-to-Play safety protocol under supervision.")
+            recommendations.append("Vestibular-ocular gaze stabilization conditioning.")
+            biomarkers.append({
+                "name": "VOMS Concussion Provocation",
+                "value": f"Score {voms_scores.get('provocationDelta', 2)} (NPC {voms_scores.get('npcCm', 5.0)}cm)",
+                "status": "Positive / Provoked",
+                "recommendation": "Graduated return-to-activity protocol"
+            })
 
         protocols = [
             "Dynamic Saccadic Step-Ramp Protocol (15 mins/day)",

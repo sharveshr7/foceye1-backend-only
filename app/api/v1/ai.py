@@ -25,5 +25,6 @@ async def generate_insights(
         incomplete_blink_pct=req.incomplete_blink_pct,
         calibration_accuracy=req.calibration_accuracy,
         total_frames_sampled=req.total_frames_sampled,
+        voms_scores=req.voms_scores,
     )
     return AIInsightResponse(**analysis)
