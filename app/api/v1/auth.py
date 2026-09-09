@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from app.core.auth import (
@@ -11,7 +12,13 @@ from app.core.auth import (
     verify_password
 )
 from app.core.supabase import supabase
-from app.schemas.auth_schemas import AuthResponse, UserLoginRequest, UserSignupRequest
+from app.schemas.auth_schemas import (
+    AuthResponse,
+    PasswordChangeRequest,
+    TokenRefreshResponse,
+    UserLoginRequest,
+    UserSignupRequest
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication & Clinical Staff"])
 
@@ -36,16 +43,22 @@ async def signup(request: UserSignupRequest):
             detail="A user with this email already exists. Please log in instead."
         )
 
-    user_id = f"user-{email_clean.split('@')[0]}"
+    user_id = f"user-{uuid.uuid4().hex[:12]}"
     hashed_pwd = hash_password(request.password)
-    clinic = request.clinic_name or "FOCEYE Vision Center"
+    hosp_name = request.hospital_name or request.clinic_name or "FOCEYE Vision Center"
     
     user_record = {
         "id": user_id,
         "email": email_clean,
         "full_name": request.full_name.strip(),
         "role": request.role,
-        "clinic_name": clinic,
+        "clinic_name": hosp_name,
+        "hospital_name": hosp_name,
+        "hospital_registration_number": request.hospital_registration_number,
+        "hospital_type": request.hospital_type or "Eye Care Center",
+        "mobile_number": request.mobile_number,
+        "city": request.city,
+        "state": request.state,
         "password_hash": hashed_pwd,
         "created_at": datetime.now().isoformat()
     }
@@ -56,7 +69,13 @@ async def signup(request: UserSignupRequest):
         "email": email_clean,
         "role": request.role,
         "full_name": request.full_name.strip(),
-        "clinic_name": clinic
+        "clinic_name": hosp_name,
+        "hospital_name": hosp_name,
+        "hospital_registration_number": request.hospital_registration_number,
+        "hospital_type": request.hospital_type,
+        "mobile_number": request.mobile_number,
+        "city": request.city,
+        "state": request.state
     })
 
     safe_user = {k: v for k, v in user_record.items() if k != "password_hash"}
@@ -92,11 +111,17 @@ async def login(request: UserLoginRequest):
         if email_clean in ["dr.smith@foceye.clinic", "admin@foceye.clinic", "clinician@foceye.clinic"]:
             hashed_pwd = hash_password(request.password)
             user_record = {
-                "id": f"user-{email_clean.split('@')[0]}",
+                "id": f"user-{uuid.uuid4().hex[:12]}",
                 "email": email_clean,
                 "full_name": "Dr. Sarah Smith, OD",
                 "role": "clinician",
                 "clinic_name": "FOCEYE Ophthalmic Center",
+                "hospital_name": "FOCEYE Vision Hospital",
+                "hospital_registration_number": "HOSP-REG-2026-001",
+                "hospital_type": "Eye Care Center",
+                "mobile_number": "+1 (555) 019-2831",
+                "city": "Boston",
+                "state": "MA",
                 "password_hash": hashed_pwd,
                 "created_at": datetime.now().isoformat()
             }
@@ -112,7 +137,13 @@ async def login(request: UserLoginRequest):
         "email": user_record["email"],
         "role": user_record.get("role", "clinician"),
         "full_name": user_record.get("full_name", "Clinical Specialist"),
-        "clinic_name": user_record.get("clinic_name", "FOCEYE Ophthalmic Center")
+        "clinic_name": user_record.get("clinic_name", "FOCEYE Ophthalmic Center"),
+        "hospital_name": user_record.get("hospital_name") or user_record.get("clinic_name", "FOCEYE Vision Hospital"),
+        "hospital_registration_number": user_record.get("hospital_registration_number"),
+        "hospital_type": user_record.get("hospital_type"),
+        "mobile_number": user_record.get("mobile_number"),
+        "city": user_record.get("city"),
+        "state": user_record.get("state")
     })
 
     safe_user = {k: v for k, v in user_record.items() if k != "password_hash"}
@@ -123,9 +154,81 @@ async def login(request: UserLoginRequest):
     )
 
 
+@router.post("/change-password")
+async def change_password(
+    req: PasswordChangeRequest,
+    current_user: UserProfile = Depends(get_current_user)
+):
+    res = supabase.table("profiles").select("*").eq("id", current_user.id).execute()
+    if not res.data or len(res.data) == 0:
+        # Try matching by email
+        res = supabase.table("profiles").select("*").eq("email", current_user.email).execute()
+
+    if not res.data or len(res.data) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found."
+        )
+
+    user_data = res.data[0]
+    stored_hash = user_data.get("password_hash")
+    if stored_hash and not verify_password(req.current_password, stored_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect."
+        )
+
+    new_hash = hash_password(req.new_password)
+    supabase.table("profiles").update({"password_hash": new_hash}).eq("id", user_data["id"]).execute()
+    return {"message": "Password updated successfully."}
+
+
+@router.post("/refresh", response_model=TokenRefreshResponse)
+async def refresh_token(current_user: UserProfile = Depends(get_current_user)):
+    new_token = create_access_token({
+        "sub": current_user.id,
+        "email": current_user.email,
+        "role": current_user.role,
+        "full_name": current_user.full_name,
+        "clinic_name": current_user.clinic_name,
+        "hospital_name": current_user.hospital_name,
+        "hospital_registration_number": current_user.hospital_registration_number,
+        "hospital_type": current_user.hospital_type,
+        "mobile_number": current_user.mobile_number,
+        "city": current_user.city,
+        "state": current_user.state
+    })
+    return TokenRefreshResponse(access_token=new_token, token_type="bearer")
+
+
+@router.post("/logout")
+async def logout(current_user: UserProfile = Depends(get_current_user)):
+    return {"message": "Logged out successfully."}
+
+
+
 @router.get("/me", response_model=UserProfile)
 async def get_current_user_profile(user: UserProfile = Depends(get_current_user)):
+    res = supabase.table("profiles").select("*").eq("id", user.id).execute()
+    if not res.data or len(res.data) == 0:
+        res = supabase.table("profiles").select("*").eq("email", user.email).execute()
+    if res.data and len(res.data) > 0:
+        p = res.data[0]
+        return UserProfile(
+            id=p.get("id", user.id),
+            email=p.get("email", user.email),
+            full_name=p.get("full_name", user.full_name),
+            role=p.get("role", user.role),
+            clinic_name=p.get("clinic_name", user.clinic_name),
+            hospital_name=p.get("hospital_name") or p.get("clinic_name", user.hospital_name),
+            hospital_registration_number=p.get("hospital_registration_number", user.hospital_registration_number),
+            hospital_type=p.get("hospital_type", user.hospital_type),
+            mobile_number=p.get("mobile_number", user.mobile_number),
+            city=p.get("city", user.city),
+            state=p.get("state", user.state)
+        )
     return user
+
 
 
 @router.get("/staff")

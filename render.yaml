@@ -10,6 +10,12 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: PORT
+        value: 10000
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        value: '["https://foceye.vercel.app","https://foceye-frontend.vercel.app","https://foceye1-backend-only.onrender.com"]'
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -22,5 +28,5 @@ services:
         generateValue: true
       - key: GEMINI_API_KEY
         sync: false
-      - key: CORS_ORIGINS
-        value: '["*"]'
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite

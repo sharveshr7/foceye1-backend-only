@@ -1,19 +1,18 @@
 import json
 import logging
-import os
-import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
-import httpx
-from app.core.config import settings
+
+from app.services.gemini_service import gemini_service
 
 logger = logging.getLogger("foceye.ai")
 
 
 class AIAnalyzerService:
     """
-    Diagnostic biomarker evaluation using Gemini Flash (via Google Generative AI SDK
-    or direct REST API) with evidence-based clinical heuristic fallback and in-memory TTL caching.
+    Diagnostic biomarker evaluation using Google Gemini API (via GeminiService)
+    with evidence-based clinical decision support heuristic fallback.
+    In-memory TTL caching prevents redundant API consumption.
     """
 
     _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
@@ -38,21 +37,17 @@ class AIAnalyzerService:
     ) -> Dict[str, Any]:
         
         # Check cache
-        cache_key = f"{condition}_{age}_{bcea_score}_{fixation_stability}_{saccadic_latency_ms}_{adherence_rate}_{horizontal_gaze_range_deg}_{vertical_gaze_range_deg}_{pursuit_gain}_{blink_rate_bpm}_{incomplete_blink_pct}_{calibration_accuracy}_{total_frames_sampled}_{voms_scores}"
+        cache_key = (
+            f"{condition}_{age}_{bcea_score}_{fixation_stability}_{saccadic_latency_ms}_{adherence_rate}_"
+            f"{horizontal_gaze_range_deg}_{vertical_gaze_range_deg}_{pursuit_gain}_{blink_rate_bpm}_"
+            f"{incomplete_blink_pct}_{calibration_accuracy}_{total_frames_sampled}_{voms_scores}"
+        )
         now = time.time()
         if cache_key in AIAnalyzerService._cache:
             cached_time, cached_val = AIAnalyzerService._cache[cache_key]
             if now - cached_time < AIAnalyzerService._CACHE_TTL_SECONDS:
                 logger.info("Returning cached AI analysis result.")
                 return cached_val
-
-        # Resolve Gemini API Key from settings or environment
-        api_key = (
-            settings.GEMINI_API_KEY 
-            or os.environ.get("GEMINI_API_KEY") 
-            or os.environ.get("GOOGLE_API_KEY") 
-            or ""
-        ).strip()
 
         # Defaults for clinical ranges
         h_range = horizontal_gaze_range_deg if horizontal_gaze_range_deg is not None else 35.0
@@ -63,8 +58,13 @@ class AIAnalyzerService:
         cal_acc = calibration_accuracy if calibration_accuracy is not None else 95.0
         frames = total_frames_sampled if total_frames_sampled is not None else 60
 
+        system_instruction = (
+            "You are a senior clinical neuro-ophthalmologist and vision therapy AI consultant for FOCEYE. "
+            "Analyze patient eye-tracking and clinical metrics objectively based strictly on the provided data. "
+            "Return valid JSON only matching the requested schema."
+        )
+
         prompt = f"""
-        You are a senior clinical neuro-ophthalmologist consulting for FOCEYE Vision Therapy.
         Analyze the following actual patient eye-tracking and clinical assessment data.
         
         CRITICAL CLINICAL REQUIREMENTS:
@@ -116,65 +116,25 @@ class AIAnalyzerService:
         Note: If VOMS is positive, emphasize return-to-learn / return-to-play graduated safety protocols in recommendations.
         """
 
-        if api_key and "mock" not in api_key.lower() and not api_key.startswith("your-"):
-            # Method 1: Direct Async Gemini REST API via httpx (fast, non-blocking, reliable)
-            candidate_models = [settings.GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-3.7-flash"]
-            # Deduplicate preserving order
-            seen = set()
-            models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+        # Attempt inference using live Google Gemini API
+        if gemini_service.is_configured:
+            gemini_data, used_model, error_msg = await gemini_service.generate_json(
+                prompt=prompt,
+                system_instruction=system_instruction,
+            )
 
-            for model_name in models_to_try:
-                try:
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-                    payload = {
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "responseMimeType": "application/json"
-                        }
-                    }
-                    async with httpx.AsyncClient(timeout=12.0) as client:
-                        resp = await client.post(url, json=payload)
-                        if resp.status_code == 200:
-                            res_json = resp.json()
-                            raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-                            match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-                            if match:
-                                raw_text = match.group(0)
-                            data = json.loads(raw_text)
-                            data["source"] = f"Gemini AI ({model_name})"
-                            res = AIAnalyzerService._ensure_schema(data, cal_acc, frames)
-                            AIAnalyzerService._cache[cache_key] = (now, res)
-                            return res
-                        else:
-                            logger.warning(f"Gemini REST API ({model_name}) returned status {resp.status_code}: {resp.text[:120]}")
-                except Exception as rest_err:
-                    logger.warning(f"Gemini REST API invocation ({model_name}) failed: {rest_err}")
-
-            # Method 2: Google Generative AI SDK fallback
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(settings.GEMINI_MODEL)
-
-                response = model.generate_content(
-                    prompt,
-                    generation_config={"response_mime_type": "application/json"}
-                )
-                
-                cleaned_text = response.text.strip()
-                match = re.search(r"\{.*\}", cleaned_text, re.DOTALL)
-                if match:
-                    cleaned_text = match.group(0)
-                data = json.loads(cleaned_text)
-                data["source"] = f"Gemini SDK ({settings.GEMINI_MODEL})"
-                res = AIAnalyzerService._ensure_schema(data, cal_acc, frames)
+            if gemini_data and isinstance(gemini_data, dict):
+                # Ensure all required fields exist
+                gemini_data["source"] = f"Gemini AI ({used_model})"
+                res = AIAnalyzerService._ensure_schema(gemini_data, cal_acc, frames)
                 AIAnalyzerService._cache[cache_key] = (now, res)
                 return res
+            else:
+                logger.warning(f"Gemini API invocation unsuccessful ({error_msg}). Falling back to Clinical Heuristic Engine.")
+        else:
+            logger.info("Gemini API not configured. Utilizing Clinical Decision Support Engine fallback.")
 
-            except Exception as sdk_err:
-                logger.warning(f"Google Generative AI SDK call failed: {sdk_err}")
-
-        # Method 3: Resilient clinical heuristic fallback engine
+        # Resilient Clinical Decision Support Heuristic Fallback Engine
         res = AIAnalyzerService._heuristic_clinical_eval(
             condition=condition,
             age=age,
@@ -196,6 +156,14 @@ class AIAnalyzerService:
 
     @staticmethod
     def _ensure_schema(data: Dict[str, Any], cal_acc: float, frames: int) -> Dict[str, Any]:
+        if "summary" not in data or not data["summary"]:
+            data["summary"] = "Clinical analysis completed with ophthalmic biometric indices."
+        if "risk_level" not in data:
+            data["risk_level"] = "Moderate"
+        if "biomarkers" not in data or not isinstance(data["biomarkers"], list):
+            data["biomarkers"] = []
+        if "recommended_protocols" not in data or not isinstance(data["recommended_protocols"], list):
+            data["recommended_protocols"] = ["Standard FOCEYE Vision Therapy Regimen"]
         if "observed_findings" not in data or not data["observed_findings"]:
             data["observed_findings"] = ["Biometric gaze stability and tracking velocity recorded."]
         if "possible_concerns" not in data or not data["possible_concerns"]:
@@ -208,6 +176,8 @@ class AIAnalyzerService:
             data["confidence_quality_indicator"] = (
                 f"Data quality {data['data_sufficiency']} ({frames} frames, {cal_acc}% calibration accuracy)"
             )
+        if "confidence_score" not in data:
+            data["confidence_score"] = 0.92
         return data
 
     @staticmethod
@@ -270,7 +240,7 @@ class AIAnalyzerService:
                 f"Moderate fixation instability noted ({fixation_stability}% stability). "
                 f"Pursuit tracking gain is {pursuit_gain}x. Favorable therapy adherence ({adherence_rate}%)."
             )
-            possible_concerns.append(f"Mild foveal tracking instability under dynamic ocular excursion.")
+            possible_concerns.append("Mild foveal tracking instability under dynamic ocular excursion.")
             recommendations.append("Near-point convergence pushups and target tracking exercises.")
             recommendations.append("Periodic 20-20-20 ocular breaks to mitigate visual fatigue.")
         else:
@@ -349,5 +319,5 @@ class AIAnalyzerService:
             "data_sufficiency": data_sufficiency,
             "confidence_quality_indicator": f"Data quality {data_sufficiency} ({total_frames_sampled} frames, {calibration_accuracy}% calibration)",
             "confidence_score": 0.72 if is_insufficient else 0.94,
-            "source": "Clinical Decision Support Engine"
+            "source": "Clinical Decision Support Engine (Fallback)"
         }

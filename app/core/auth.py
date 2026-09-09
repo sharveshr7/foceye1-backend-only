@@ -1,5 +1,6 @@
 import datetime
 from typing import List, Optional
+import uuid
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -13,7 +14,10 @@ class TokenPayload(BaseModel):
     sub: str
     email: str
     role: str = "clinician"
+    hospital_name: Optional[str] = None
     exp: Optional[int] = None
+    iat: Optional[int] = None
+    jti: Optional[str] = None
 
 
 class UserProfile(BaseModel):
@@ -22,19 +26,31 @@ class UserProfile(BaseModel):
     full_name: str
     role: str
     clinic_name: Optional[str] = None
+    hospital_name: Optional[str] = None
+    hospital_registration_number: Optional[str] = None
+    hospital_type: Optional[str] = None
+    mobile_number: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
 
 
 def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] = None) -> str:
     to_encode = data.copy()
+    now = datetime.datetime.now(datetime.timezone.utc)
     if expires_delta:
-        expire = datetime.datetime.now(datetime.timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        expire = now + datetime.timedelta(
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
-    to_encode.update({"exp": expire})
+    to_encode.update({
+        "exp": expire,
+        "iat": now,
+        "jti": str(uuid.uuid4())
+    })
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
+
 
 
 def decode_token(token: str) -> dict:
@@ -94,13 +110,25 @@ async def get_current_user(
     role = payload.get("role", "clinician")
     full_name = payload.get("full_name", "Clinical Specialist")
     clinic_name = payload.get("clinic_name", "FOCEYE Ophthalmic Center")
+    hospital_name = payload.get("hospital_name", clinic_name)
+    hospital_registration_number = payload.get("hospital_registration_number")
+    hospital_type = payload.get("hospital_type")
+    mobile_number = payload.get("mobile_number")
+    city = payload.get("city")
+    state = payload.get("state")
     
     return UserProfile(
         id=user_id,
         email=email,
         full_name=full_name,
         role=role,
-        clinic_name=clinic_name
+        clinic_name=clinic_name,
+        hospital_name=hospital_name,
+        hospital_registration_number=hospital_registration_number,
+        hospital_type=hospital_type,
+        mobile_number=mobile_number,
+        city=city,
+        state=state
     )
 
 

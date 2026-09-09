@@ -152,6 +152,20 @@ def test_calibration_engine():
     assert res["accuracy_percentage"] > 90.0
 
 
+def test_gemini_health_endpoint():
+    response = client.get("/api/v1/ai/gemini-health")
+    assert response.status_code == 200
+    data = response.json()
+    assert "success" in data
+    assert "gemini_configured" in data
+    assert "gemini_working" in data
+    assert "message" in data
+    # Security: Ensure sensitive data is never returned
+    assert "api_key" not in data
+    assert "key" not in data
+    assert "headers" not in data
+
+
 def test_ai_insights_endpoint():
     payload = {
         "condition": "Amblyopia (Lazy Eye)",
@@ -168,6 +182,10 @@ def test_ai_insights_endpoint():
     assert "risk_level" in data
     assert "recommended_protocols" in data
     assert len(data["recommended_protocols"]) > 0
+    assert "source" in data
+    assert "data_sufficiency" in data
+    assert "confidence_score" in data
+
 
 
 def test_pdf_report_endpoint():
@@ -359,6 +377,92 @@ def test_expanded_clinical_endpoints():
     })
     assert res_add_staff.status_code == 200
     assert res_add_staff.json()["email"] == "testing.specialist@foceye.clinic"
+
+
+def test_auth_hospital_metadata_persistence():
+    unauth = TestClient(app)
+    signup_data = {
+        "email": "metro.director@metrohealth.org",
+        "password": "StrongPassword2026!",
+        "full_name": "Dr. Marcus Bell",
+        "role": "clinician",
+        "hospital_name": "Metro Vision Institute",
+        "hospital_registration_number": "METRO-REG-991",
+        "hospital_type": "Eye Care Center",
+        "mobile_number": "+1 (555) 345-6789",
+        "city": "Chicago",
+        "state": "IL"
+    }
+    signup_res = unauth.post("/api/v1/auth/signup", json=signup_data)
+    assert signup_res.status_code == 200
+    token = signup_res.json()["access_token"]
+    user = signup_res.json()["user"]
+    assert user["hospital_name"] == "Metro Vision Institute"
+    assert user["hospital_registration_number"] == "METRO-REG-991"
+
+    # Verify /me retains full hospital metadata
+    authed = TestClient(app)
+    authed.headers["Authorization"] = f"Bearer {token}"
+    me_res = authed.get("/api/v1/auth/me")
+    assert me_res.status_code == 200
+    me_data = me_res.json()
+    assert me_data["hospital_name"] == "Metro Vision Institute"
+    assert me_data["hospital_registration_number"] == "METRO-REG-991"
+    assert me_data["city"] == "Chicago"
+
+
+def test_auth_password_change_and_refresh():
+    unauth = TestClient(app)
+    signup_data = {
+        "email": "passchange.clinician@foceye.clinic",
+        "password": "InitialPassword123!",
+        "full_name": "Dr. Password Tester",
+        "role": "clinician",
+        "hospital_name": "FOCEYE Testing Lab"
+    }
+    signup_res = unauth.post("/api/v1/auth/signup", json=signup_data)
+    assert signup_res.status_code == 200
+    token = signup_res.json()["access_token"]
+
+    authed = TestClient(app)
+    authed.headers["Authorization"] = f"Bearer {token}"
+
+    # 1. Test Refresh
+    refresh_res = authed.post("/api/v1/auth/refresh")
+    assert refresh_res.status_code == 200
+    new_token = refresh_res.json()["access_token"]
+    assert new_token is not None
+
+    # 2. Test Incorrect Current Password
+    bad_change = authed.post("/api/v1/auth/change-password", json={
+        "current_password": "WrongOldPassword!",
+        "new_password": "UpdatedPassword456!"
+    })
+    assert bad_change.status_code == 400
+
+    # 3. Test Successful Password Change
+    good_change = authed.post("/api/v1/auth/change-password", json={
+        "current_password": "InitialPassword123!",
+        "new_password": "UpdatedPassword456!"
+    })
+    assert good_change.status_code == 200
+    assert "successfully" in good_change.json()["message"].lower()
+
+    # 4. Verify login with old password fails
+    fail_login = unauth.post("/api/v1/auth/login", json={
+        "email": "passchange.clinician@foceye.clinic",
+        "password": "InitialPassword123!"
+    })
+    assert fail_login.status_code == 401
+
+    # 5. Verify login with new password succeeds
+    success_login = unauth.post("/api/v1/auth/login", json={
+        "email": "passchange.clinician@foceye.clinic",
+        "password": "UpdatedPassword456!"
+    })
+    assert success_login.status_code == 200
+    assert "access_token" in success_login.json()
+
 
 
 

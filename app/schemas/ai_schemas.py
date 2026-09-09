@@ -33,3 +33,12 @@ class AIInsightResponse(BaseModel):
     recommendations: Optional[List[str]] = []
     data_sufficiency: Optional[str] = "Sufficient"
     confidence_quality_indicator: Optional[str] = "High Data Confidence"
+
+
+class GeminiHealthResponse(BaseModel):
+    success: bool
+    gemini_configured: bool
+    gemini_working: bool
+    message: str
+    model: Optional[str] = None
+    error_type: Optional[str] = None

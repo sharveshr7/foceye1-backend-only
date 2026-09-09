@@ -1,9 +1,20 @@
 from fastapi import APIRouter, Depends
 from app.core.auth import UserProfile, get_current_user
-from app.schemas.ai_schemas import AIInsightRequest, AIInsightResponse
+from app.schemas.ai_schemas import AIInsightRequest, AIInsightResponse, GeminiHealthResponse
 from app.services.ai_analyzer import AIAnalyzerService
+from app.services.gemini_service import gemini_service
 
 router = APIRouter(prefix="/ai", tags=["AI Clinical Diagnostics"])
+
+
+@router.get("/gemini-health", response_model=GeminiHealthResponse)
+async def gemini_health():
+    """
+    Dedicated diagnostic endpoint verifying the Google Gemini API connection independently
+    from the clinical application flow. Never exposes keys, credentials, or secrets.
+    """
+    result = await gemini_service.check_health()
+    return GeminiHealthResponse(**result)
 
 
 @router.post("/insights", response_model=AIInsightResponse)
