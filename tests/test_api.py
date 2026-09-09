@@ -215,6 +215,33 @@ def test_pdf_report_endpoint():
     assert len(response.content) > 1000 # Valid PDF bytes
 
 
+def test_therapy_prescription_endpoint():
+    req_payload = {
+        "patient_name": "Rohan Kumar",
+        "age": 24,
+        "condition": "Convergence Insufficiency",
+        "exercise_id": "target-tracking",
+        "exercise_name": "Target Tracking",
+        "session_accuracy": 92.5,
+        "repetitions": 8,
+        "pre_fatigue_vas": 2,
+        "post_fatigue_vas": 3,
+        "working_distance_cm": 45,
+        "saccadic_latency_ms": 215.0,
+        "fixation_stability_pct": 94.0,
+        "language": "en"
+    }
+    res = client.post("/api/v1/ai/therapy-prescription", json=req_payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["patient_name"] == "Rohan Kumar"
+    assert len(data["weekly_regimen"]) == 4
+    assert "home_discharge_handout" in data
+    assert len(data["home_discharge_handout"]["instructions"]) > 0
+
+
+
 def test_websocket_gaze_streaming():
     with client.websocket_connect("/ws/gaze/sess-test-100") as ws1:
         with client.websocket_connect("/ws/gaze/sess-test-100") as ws2:

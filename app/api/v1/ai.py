@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Depends
 from app.core.auth import UserProfile, get_current_user
-from app.schemas.ai_schemas import AIInsightRequest, AIInsightResponse, GeminiHealthResponse
+from app.schemas.ai_schemas import (
+    AIInsightRequest,
+    AIInsightResponse,
+    GeminiHealthResponse,
+    TherapyPrescriptionRequest,
+    TherapyPrescriptionResponse,
+)
 from app.services.ai_analyzer import AIAnalyzerService
 from app.services.gemini_service import gemini_service
 
@@ -39,3 +45,30 @@ async def generate_insights(
         voms_scores=req.voms_scores,
     )
     return AIInsightResponse(**analysis)
+
+
+@router.post("/therapy-prescription", response_model=TherapyPrescriptionResponse)
+async def generate_therapy_prescription(
+    req: TherapyPrescriptionRequest,
+    user: UserProfile = Depends(get_current_user)
+):
+    """
+    Generates an evidence-based 4-Week Visual Rehabilitation Prescription (VRP)
+    and a multilingual Patient Discharge Handout tailored to post-therapy performance metrics.
+    """
+    prescription = await AIAnalyzerService.generate_therapy_prescription(
+        patient_name=req.patient_name or "Patient",
+        age=req.age or 30,
+        condition=req.condition,
+        exercise_name=req.exercise_name or "Target Tracking",
+        session_accuracy=req.session_accuracy or 90.0,
+        repetitions=req.repetitions or 5,
+        pre_fatigue_vas=req.pre_fatigue_vas or 2,
+        post_fatigue_vas=req.post_fatigue_vas or 3,
+        working_distance_cm=req.working_distance_cm or 45,
+        saccadic_latency_ms=req.saccadic_latency_ms or 220.0,
+        fixation_stability_pct=req.fixation_stability_pct or 92.0,
+        language=req.language or "en",
+    )
+    return TherapyPrescriptionResponse(**prescription)
+

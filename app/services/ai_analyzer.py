@@ -321,3 +321,270 @@ class AIAnalyzerService:
             "confidence_score": 0.72 if is_insufficient else 0.94,
             "source": "Clinical Decision Support Engine (Fallback)"
         }
+
+    @staticmethod
+    async def generate_therapy_prescription(
+        patient_name: str = "Patient",
+        age: int = 30,
+        condition: str = "Convergence Insufficiency",
+        exercise_name: str = "Target Tracking",
+        session_accuracy: float = 90.0,
+        repetitions: int = 5,
+        pre_fatigue_vas: int = 2,
+        post_fatigue_vas: int = 3,
+        working_distance_cm: int = 45,
+        saccadic_latency_ms: float = 220.0,
+        fixation_stability_pct: float = 92.0,
+        language: str = "en",
+    ) -> Dict[str, Any]:
+        """
+        Generates an automated 4-week Visual Rehabilitation Prescription (VRP)
+        and a multilingual Patient Discharge Handout using Google Gemini.
+        """
+        lang_names = {
+            "en": "English",
+            "ta": "Tamil (தமிழ்)",
+            "ml": "Malayalam (മലയാളം)",
+            "te": "Telugu (తెలుగు)",
+            "hi": "Hindi (हिन्दी)",
+        }
+        target_lang_label = lang_names.get(language, "English")
+
+        prompt = f"""
+        Generate an evidence-based 4-Week Visual Rehabilitation Prescription (VRP) and a multilingual Patient Discharge Handout.
+
+        PATIENT & CLINICAL REHABILITATION DATA:
+        - Patient Name: {patient_name}
+        - Age: {age}
+        - Eye Condition / Diagnosis: {condition}
+        - Completed Exercise: {exercise_name}
+        - Session Tracking Accuracy: {session_accuracy}%
+        - Executed Repetitions: {repetitions}
+        - Visual Fatigue (1-10 VAS): Baseline {pre_fatigue_vas}/10 -> Post-Session {post_fatigue_vas}/10
+        - Working Distance: {working_distance_cm} cm
+        - Saccadic Latency: {saccadic_latency_ms} ms
+        - Fixation Stability: {fixation_stability_pct}%
+        - Target Language for Patient Handout: {target_lang_label} (Language code: '{language}')
+
+        CLINICAL REQUIREMENTS:
+        1. Clinical Rationale: Concise 2-3 sentence explanation for the ophthalmologist on why this regimen stimulates oculomotor neuroplasticity.
+        2. Weekly Regimen: Exactly 4 weeks (weeks 1 to 4) with progressive difficulty (Week 1 foundation, Week 2 ramp, Week 3 challenge, Week 4 stabilization).
+        3. Home Discharge Handout:
+           - MUST be written in the patient's requested language ({target_lang_label}).
+           - Include patient greeting, clear daily home exercise instructions, ergonomic tips (20-20-20 rule, screen distance), red flag warning signs (sudden diplopia, severe pain), and follow-up timeline.
+        
+        Return STRICTLY a JSON object with this structure:
+        {{
+            "clinical_rationale": "...",
+            "weekly_regimen": [
+                {{
+                    "week": 1,
+                    "focus_goal": "...",
+                    "daily_frequency": "...",
+                    "target_duration_mins": 10,
+                    "target_velocity": "1.0x",
+                    "instructions": "..."
+                }},
+                ... (up to week 4)
+            ],
+            "home_discharge_handout": {{
+                "title": "...",
+                "greeting": "...",
+                "instructions": ["...", "..."],
+                "ergonomic_and_hygiene_tips": ["...", "..."],
+                "red_flag_symptoms": ["...", "..."],
+                "follow_up_schedule": "..."
+            }}
+        }}
+        """
+
+        system_instruction = (
+            "You are a clinical neuro-ophthalmologist and certified vision therapist. "
+            "Formulate an exact 4-week visual rehabilitation progression and patient-friendly discharge instructions. "
+            f"Write the home_discharge_handout sections in fluent, warm, and natural {target_lang_label}. "
+            "Output valid JSON only."
+        )
+
+        # 1. Attempt Gemini Generation
+        if gemini_service.is_configured:
+            parsed, used_model, err = await gemini_service.generate_json(
+                prompt=prompt,
+                system_instruction=system_instruction,
+            )
+            if parsed and "weekly_regimen" in parsed and "home_discharge_handout" in parsed:
+                return {
+                    "success": True,
+                    "patient_name": patient_name,
+                    "condition": condition,
+                    "language": language,
+                    "clinical_rationale": parsed.get("clinical_rationale", "Targeted oculomotor conditioning to reinforce binocular fusion and saccadic precision."),
+                    "weekly_regimen": parsed["weekly_regimen"],
+                    "home_discharge_handout": parsed["home_discharge_handout"],
+                    "source": "Google Gemini Clinical Vision Engine",
+                    "model": used_model or gemini_service.default_model,
+                }
+            logger.warning(f"Gemini prescription generation fell back: {err}")
+
+        # 2. Evidence-Based Clinical Fallback
+        return AIAnalyzerService._get_fallback_prescription(
+            patient_name=patient_name,
+            condition=condition,
+            exercise_name=exercise_name,
+            language=language,
+            working_distance_cm=working_distance_cm,
+        )
+
+    @staticmethod
+    def _get_fallback_prescription(
+        patient_name: str,
+        condition: str,
+        exercise_name: str,
+        language: str,
+        working_distance_cm: int = 45,
+    ) -> Dict[str, Any]:
+        """Provides evidence-based optometric fallback protocols when offline."""
+        regimen = [
+            {
+                "week": 1,
+                "focus_goal": "Establish Baseline Neuro-Motor Coordination",
+                "daily_frequency": "1 session / day",
+                "target_duration_mins": 5,
+                "target_velocity": "1.0x Pace",
+                "instructions": f"Perform {exercise_name} at standard pace at {working_distance_cm} cm distance with head stabilized.",
+            },
+            {
+                "week": 2,
+                "focus_goal": "Saccadic Latency Reduction & Gaze Hold",
+                "daily_frequency": "2 sessions / day",
+                "target_duration_mins": 8,
+                "target_velocity": "1.2x Pace",
+                "instructions": "Maintain fixations on peripheral target jumps. Incorporate 20-second gaze breaks at midpoint.",
+            },
+            {
+                "week": 3,
+                "focus_goal": "Binocular Fusion & Smooth Pursuit Velocity",
+                "daily_frequency": "2 sessions / day",
+                "target_duration_mins": 10,
+                "target_velocity": "1.4x Pace",
+                "instructions": "Increase tracking velocity. Ensure consistent binocular engagement without head tilt.",
+            },
+            {
+                "week": 4,
+                "focus_goal": "Ocular Motility Consolidation & Visual Stamina",
+                "daily_frequency": "1 session / day",
+                "target_duration_mins": 10,
+                "target_velocity": "1.5x Pace",
+                "instructions": "Consolidate endurance. Perform post-session visual rest and record fatigue score.",
+            },
+        ]
+
+        handouts: Dict[str, Dict[str, Any]] = {
+            "en": {
+                "title": "Home Visual Rehabilitation & Eye Hygiene Guide",
+                "greeting": f"Dear {patient_name}, congratulations on completing your visual therapy session today.",
+                "instructions": [
+                    f"Perform prescribed {exercise_name} once to twice daily as outlined in your 4-week chart.",
+                    f"Maintain your screen distance strictly at {working_distance_cm} cm (approx. an arm's length).",
+                    "Keep your head completely steady during eye movements and blink naturally.",
+                ],
+                "ergonomic_and_hygiene_tips": [
+                    "Follow the 20-20-20 Rule: Every 20 minutes of screen use, look 20 feet away for 20 seconds.",
+                    "Ensure overhead room lighting is balanced to prevent glare and screen reflections.",
+                    "Stay hydrated and remember to take scheduled visual rest breaks.",
+                ],
+                "red_flag_symptoms": [
+                    "Sudden onset of double vision (diplopia) lasting > 5 minutes.",
+                    "Severe sharp ocular pain or flashes of light.",
+                ],
+                "follow_up_schedule": "Schedule a follow-up review with your attending optometrist in 3 to 4 weeks.",
+            },
+            "ta": {
+                "title": "வீட்டு பார்வை மறுவாழ்வு மற்றும் கண் பாதுகாப்பு வழிகாட்டி",
+                "greeting": f"அன்புள்ள {patient_name}, உங்கள் கண் பயிற்சி அமர்வை வெற்றிகரமாக முடித்ததற்கு வாழ்த்துகள்.",
+                "instructions": [
+                    f"உங்கள் 4 வார அட்டவணையின்படி {exercise_name} பயிற்சியை தினமும் 1 முதல் 2 முறை செய்யவும்.",
+                    f"திரையிலிருந்து கண் தூரத்தை சரியாக {working_distance_cm} செ.மீ அளவில் பராமரிக்கவும்.",
+                    "கண் அசைவுகளின் போது தலையை அசைக்காமல் நேராக வைத்துக்கொள்ளவும்.",
+                ],
+                "ergonomic_and_hygiene_tips": [
+                    "20-20-20 விதி: ஒவ்வொரு 20 நிமிடங்களுக்கும் 20 அடி தூரமுள்ள பொருளை 20 நொடிகள் பார்க்கவும்.",
+                    "கண்களில் நீர்ச்சத்து குறையாமல் இருக்க போதுமான தண்ணீர் குடிக்கவும்.",
+                    "அறை வெளிச்சம் திரைப் பிரதிபலிப்பு இல்லாமல் சீராக இருப்பதை உறுதிசெய்யவும்.",
+                ],
+                "red_flag_symptoms": [
+                    "திடீரென இரட்டை பார்வை (Double vision) ஏற்படுதல்.",
+                    "கடும் கண் வலி அல்லது ஒளிரும் புள்ளிகள் தோன்றுதல்.",
+                ],
+                "follow_up_schedule": "3 முதல் 4 வாரங்களில் உங்கள் கண் மருத்துவரிடம் மறுபரிசோதனைக்கு வரவும்.",
+            },
+            "hi": {
+                "title": "घरेलू दृष्टि पुनर्वास एवं नेत्र सुरक्षा दिशानिर्देश",
+                "greeting": f"प्रिय {patient_name}, आज अपना दृष्टि थेरेपी सत्र सफलतापूर्वक पूरा करने पर बधाई।",
+                "instructions": [
+                    f"अपने 4-सप्ताह के चार्ट के अनुसार {exercise_name} दिन में 1 से 2 बार करें।",
+                    f"स्क्रीन से अपनी दूरी लगभग {working_distance_cm} सेमी (हाथ की दूरी) बनाए रखें।",
+                    "व्यायाम करते समय सिर को स्थिर रखें और केवल आंखों को घुमाएं।",
+                ],
+                "ergonomic_and_hygiene_tips": [
+                    "20-20-20 नियम: हर 20 मिनट के स्क्रीन समय के बाद 20 फीट दूर 20 सेकंड के लिए देखें।",
+                    "पर्याप्त पानी पिएं और कमरे में रोशनी संतुलित रखें।",
+                    "थकान महसूस होने पर 20 सेकंड का विश्राम अवश्य लें।",
+                ],
+                "red_flag_symptoms": [
+                    "अचानक दोहरी दृष्टि (Double vision) दिखाई देना।",
+                    "आंखों में तेज दर्द या चमकती रोशनी दिखाई देना।",
+                ],
+                "follow_up_schedule": "3 से 4 सप्ताह में अपने नेत्र रोग विशेषज्ञ से पुनः जांच कराएं।",
+            },
+            "te": {
+                "title": "ఇంటి వద్ద కంటి వ్యాయామాలు మరియు భద్రతా సూచనలు",
+                "greeting": f"ప్రియమైన {patient_name}, మీ విజన్ థెరపీ సెషన్‌ను విజయవంతంగా పూర్తి చేసినందుకు అభినందనలు.",
+                "instructions": [
+                    f"మీ 4 వారాల పట్టిక ప్రకారం {exercise_name} రోజుకు 1-2 సార్లు సాధన చేయండి.",
+                    f"స్క్రీన్ నుండి దూరం ఖచ్చితంగా {working_distance_cm} సెం.మీ ఉండేలా చూసుకోండి.",
+                    "వ్యాయామ సమయంలో తల తిప్పకుండా కేవలం కళ్ళను మాత్రమే కదపండి.",
+                ],
+                "ergonomic_and_hygiene_tips": [
+                    "20-20-20 నియమం: ప్రతి 20 నిమిషాలకు 20 అడుగుల దూరాన్ని 20 సెకన్ల పాటు చూడండి.",
+                    "కంటి అలసటను నివారించడానికి తగినంత నీరు త్రాగండి.",
+                ],
+                "red_flag_symptoms": [
+                    "అకస్మాత్తుగా రెండుగా కనిపించడం (Double vision).",
+                    "తీవ్రమైన కంటి నొప్పి లేదా మెరుపులు రావడం.",
+                ],
+                "follow_up_schedule": "3 నుండి 4 వారాలలో మీ కంటి వైద్యుడిని సంప్రదించండి.",
+            },
+            "ml": {
+                "title": "ഗൃഹ നേത്ര പുനരധിവാസവും സംരക്ഷണ മാർഗ്ഗനിർദ്ദേശങ്ങളും",
+                "greeting": f"പ്രിയപ്പെട്ട {patient_name}, നിങ്ങളുടെ ഇന്നത്തെ തെറാപ്പി വിജയകരമായി പൂർത്തിയാക്കിയതിന് അഭിനന്ദനങ്ങൾ.",
+                "instructions": [
+                    f"നിങ്ങളുടെ 4 ആഴ്ചത്തെ പട്ടിക അനുസരിച്ച് {exercise_name} വ്യായാമം ദിവസവും 1-2 തവണ ചെയ്യുക.",
+                    f"സ്‌ക്രീനിൽ നിന്ന് {working_distance_cm} സെ.മീ അകലം കൃത്യമായി പാലിക്കുക.",
+                    "തല അനക്കാതെ കൃഷ്ണമണികൾ മാത്രം ചലിപ്പിക്കുക.",
+                ],
+                "ergonomic_and_hygiene_tips": [
+                    "20-20-20 നിയമം: ഓരോ 20 മിനിറ്റിലും 20 അടി അകലെയുള്ള വസ്തുവിലേക്ക് 20 സെക്കൻഡ് നോക്കുക.",
+                    "ആവശ്യത്തിന് വെള്ളം കുടിക്കുകയും നേത്ര വിശ്രമം ഉറപ്പാക്കുകയും ചെയ്യുക.",
+                ],
+                "red_flag_symptoms": [
+                    "പെട്ടെന്ന് വസ്തുക്കൾ രണ്ടായി കാണുക (Double vision).",
+                    "തീവ്രമായ നേത്രവേദന അനുഭവപ്പെടുക.",
+                ],
+                "follow_up_schedule": "3-4 ആഴ്ചകൾക്കുള്ളിൽ ഡോക്ടറെ വീണ്ടും കാണുക.",
+            },
+        }
+
+        chosen_handout = handouts.get(language, handouts["en"])
+
+        return {
+            "success": True,
+            "patient_name": patient_name,
+            "condition": condition,
+            "language": language,
+            "clinical_rationale": f"Structured progressive oculomotor exercise plan targeting {condition} to re-establish binocular coordination.",
+            "weekly_regimen": regimen,
+            "home_discharge_handout": chosen_handout,
+            "source": "Clinical Decision Support Engine (Fallback Protocol)",
+            "model": "rule-based-clinical-optometry",
+        }
+

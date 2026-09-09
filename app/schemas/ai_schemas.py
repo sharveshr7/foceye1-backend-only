@@ -42,3 +42,51 @@ class GeminiHealthResponse(BaseModel):
     message: str
     model: Optional[str] = None
     error_type: Optional[str] = None
+
+
+class WeeklyRegimenItem(BaseModel):
+    week: int
+    focus_goal: str
+    daily_frequency: str
+    target_duration_mins: int
+    target_velocity: str
+    instructions: str
+
+
+class HomeDischargeHandout(BaseModel):
+    title: str
+    greeting: str
+    instructions: List[str]
+    ergonomic_and_hygiene_tips: List[str]
+    red_flag_symptoms: List[str]
+    follow_up_schedule: str
+
+
+class TherapyPrescriptionRequest(BaseModel):
+    patient_id: Optional[str] = None
+    patient_name: Optional[str] = "Patient"
+    age: Optional[int] = 30
+    condition: str = "Convergence Insufficiency"
+    exercise_id: Optional[str] = "target-tracking"
+    exercise_name: Optional[str] = "Target Tracking"
+    session_accuracy: Optional[float] = 90.0
+    repetitions: Optional[int] = 5
+    pre_fatigue_vas: Optional[int] = 2
+    post_fatigue_vas: Optional[int] = 3
+    working_distance_cm: Optional[int] = 45
+    saccadic_latency_ms: Optional[float] = 220.0
+    fixation_stability_pct: Optional[float] = 92.0
+    language: Optional[str] = "en"  # "en", "ta", "ml", "te", "hi"
+
+
+class TherapyPrescriptionResponse(BaseModel):
+    success: bool
+    patient_name: str
+    condition: str
+    language: str
+    clinical_rationale: str
+    weekly_regimen: List[WeeklyRegimenItem]
+    home_discharge_handout: HomeDischargeHandout
+    source: str = "Google Gemini Clinical Vision Engine"
+    model: Optional[str] = None
+
