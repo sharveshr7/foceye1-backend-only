@@ -27,20 +27,16 @@ async def get_active_device_status(user: UserProfile = Depends(get_current_user)
     devices = res.data or []
     if not devices:
         return {
-            "id": "FOC-PI5-001",
-            "name": "FOCEYE Pi-Tracker v2",
-            "status": "online",
-            "battery": 95,
-            "connection": "Active",
-            "fps": 60.0,
-            "latency_ms": 11.4
+            "status": "no_device_connected",
+            "message": "No active hardware tracking stations registered.",
+            "device": None
         }
     active = next((d for d in devices if d.get("status") == "online"), devices[0])
     return {
         "id": active.get("id"),
         "name": active.get("name"),
         "status": active.get("status", "online"),
-        "battery": 92,
+        "battery": active.get("battery"),
         "connection": "Active",
         "fps": active.get("fps", 60.0),
         "latency_ms": active.get("latency_ms", 11.4),

@@ -126,18 +126,136 @@ async def log_therapy_session(
     db_columns = {
         "id", "patient_id", "exercise_type", "duration_seconds",
         "fixation_score", "saccadic_score", "convergence_score",
-        "overall_score", "bcea_68", "bcea_95", "clinical_notes", "created_at"
+        "overall_score", "bcea_68", "bcea_95", "language", "repetitions",
+        "clinical_notes", "created_at"
     }
     insert_payload = {k: v for k, v in session_data.items() if k in db_columns}
     supabase.table("therapy_sessions").insert(insert_payload).execute()
     
     # Update patient last_session date
     try:
-        supabase.table("patients").update({
-            "last_session": datetime.now().strftime("%Y-%m-%d"),
-            "bcea_score": session_data.get("bcea_68", 1.2)
-        }).eq("id", session_in.patient_id).execute()
+        patient_update = {
+            "last_session": datetime.now().strftime("%Y-%m-%d")
+        }
+        if "bcea_68" in session_data and session_data["bcea_68"] is not None:
+            patient_update["bcea_score"] = session_data["bcea_68"]
+        supabase.table("patients").update(patient_update).eq("id", session_in.patient_id).execute()
     except Exception:
         pass
 
     return session_data
+
+
+# Feature 5: VR Therapy Session Tracking & Performance Recording
+from app.schemas.therapy_session_schemas import (
+    TherapySessionCreate as VRTherapySessionCreate,
+    TherapySessionResponse as VRTherapySessionResponse,
+    TherapySessionAction,
+    TherapySessionResultCreate,
+    TherapySessionResultResponse,
+)
+from app.services.therapy_session_service import TherapySessionService
+
+therapy_sessions_router = APIRouter(tags=["VR Therapy Sessions"])
+
+
+@therapy_sessions_router.post("/therapy-sessions", response_model=VRTherapySessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_therapy_session(
+    payload: VRTherapySessionCreate,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.create_session(payload, clinician_id=user.full_name or user.id)
+
+
+@therapy_sessions_router.get("/therapy-sessions/{session_id}", response_model=VRTherapySessionResponse)
+async def get_therapy_session(
+    session_id: str,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.get_session(session_id)
+
+
+@therapy_sessions_router.post("/therapy-sessions/{session_id}/start", response_model=VRTherapySessionResponse)
+async def start_therapy_session(
+    session_id: str,
+    payload: Optional[TherapySessionAction] = None,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.transition_state(
+        session_id=session_id,
+        target_status="in_progress",
+        actual_duration_seconds=payload.actual_duration_seconds if payload else None
+    )
+
+
+@therapy_sessions_router.post("/therapy-sessions/{session_id}/pause", response_model=VRTherapySessionResponse)
+async def pause_therapy_session(
+    session_id: str,
+    payload: Optional[TherapySessionAction] = None,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.transition_state(
+        session_id=session_id,
+        target_status="paused",
+        actual_duration_seconds=payload.actual_duration_seconds if payload else None
+    )
+
+
+@therapy_sessions_router.post("/therapy-sessions/{session_id}/resume", response_model=VRTherapySessionResponse)
+async def resume_therapy_session(
+    session_id: str,
+    payload: Optional[TherapySessionAction] = None,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.transition_state(
+        session_id=session_id,
+        target_status="in_progress",
+        actual_duration_seconds=payload.actual_duration_seconds if payload else None
+    )
+
+
+@therapy_sessions_router.post("/therapy-sessions/{session_id}/complete", response_model=VRTherapySessionResponse)
+async def complete_therapy_session(
+    session_id: str,
+    payload: Optional[TherapySessionAction] = None,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.transition_state(
+        session_id=session_id,
+        target_status="completed",
+        actual_duration_seconds=payload.actual_duration_seconds if payload else None
+    )
+
+
+@therapy_sessions_router.post("/therapy-sessions/{session_id}/stop", response_model=VRTherapySessionResponse)
+async def stop_therapy_session(
+    session_id: str,
+    payload: Optional[TherapySessionAction] = None,
+    user: UserProfile = Depends(get_current_user)
+):
+    stop_reason = payload.stop_reason if payload else "Session stopped early"
+    duration = payload.actual_duration_seconds if payload else None
+    return TherapySessionService.transition_state(
+        session_id=session_id,
+        target_status="stopped",
+        actual_duration_seconds=duration,
+        stop_reason=stop_reason
+    )
+
+
+@therapy_sessions_router.post("/therapy-sessions/{session_id}/results", response_model=TherapySessionResultResponse, status_code=status.HTTP_201_CREATED)
+async def save_therapy_session_result(
+    session_id: str,
+    payload: TherapySessionResultCreate,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.save_session_result(session_id, payload)
+
+
+@therapy_sessions_router.get("/patients/{patient_id}/therapy-sessions", response_model=List[VRTherapySessionResponse])
+async def get_patient_therapy_sessions(
+    patient_id: str,
+    user: UserProfile = Depends(get_current_user)
+):
+    return TherapySessionService.get_patient_sessions(patient_id)
+

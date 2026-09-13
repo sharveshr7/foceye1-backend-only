@@ -21,12 +21,12 @@ class CalibrationEngine:
         """
         from typing import Any
         if len(target_pts) < 6:
-            # Need at least 6 points for 2nd order polynomial, default fallback
+            # Need at least 6 points for 2nd order polynomial
             return {
                 "success": False,
                 "rmse_pixels": 0.0,
-                "accuracy_percentage": 90.0,
-                "coefficients": [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "accuracy_percentage": 0.0,
+                "coefficients": [0.0] * 12,
                 "message": "Insufficient calibration points. Need at least 6 points."
             }
 

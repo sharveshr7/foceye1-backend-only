@@ -83,6 +83,10 @@ async def gaze_websocket_endpoint(websocket: WebSocket, session_id: str):
         while True:
             # Receive either binary 32-byte frame or JSON message
             message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                manager.disconnect(session_id, websocket)
+                break
+
             if "bytes" in message and message["bytes"]:
                 await manager.broadcast_bytes(session_id, message["bytes"], sender=websocket)
             elif "text" in message and message["text"]:

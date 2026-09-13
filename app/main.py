@@ -3,13 +3,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from app.api.v1.adaptive_therapy import router as adaptive_therapy_router
 from app.api.v1.ai import router as ai_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.calibration import router as calibration_router
+from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.devices import router as devices_router
+from app.api.v1.eye_test_routes import router as eye_test_router, ai_alias_router
 from app.api.v1.patients import router as patients_router
+from app.api.v1.progress import router as progress_router
 from app.api.v1.reports import router as reports_router
-from app.api.v1.therapy import router as therapy_router
+from app.api.v1.therapy import router as therapy_router, therapy_sessions_router
 from app.api.v1.websocket_gaze import router as ws_router
 from app.core.config import settings
 
@@ -72,10 +76,16 @@ async def add_security_and_timing_headers(request, call_next):
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(patients_router, prefix="/api/v1")
 app.include_router(therapy_router, prefix="/api/v1")
+app.include_router(therapy_sessions_router, prefix="/api/v1")
+app.include_router(adaptive_therapy_router, prefix="/api/v1")
+app.include_router(progress_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(calibration_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
 app.include_router(devices_router, prefix="/api/v1")
+app.include_router(eye_test_router, prefix="/api/v1")
+app.include_router(ai_alias_router, prefix="/api/v1")
 app.include_router(ws_router)
 
 

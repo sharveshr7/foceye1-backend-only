@@ -10,7 +10,20 @@ _mock_db: Dict[str, List[Dict[str, Any]]] = {
     "patients": [],
     "therapy_sessions": [],
     "calibration_records": [],
-    "devices": []
+    "devices": [],
+    "eye_test_sessions": [],
+    "eye_test_results": [],
+    "ai_analyses": [],
+    "therapy_recommendations": [],
+    "therapy_session_results": [],
+    "patient_progress_summaries": [],
+    "ai_progress_summaries": [],
+    "clinician_progress_notes": [],
+    "adaptive_therapy_configs": [],
+    "therapy_adaptation_recommendations": [],
+    "therapy_adaptation_audits": [],
+    "notifications": [],
+    "system_activity_logs": [],
 }
 
 

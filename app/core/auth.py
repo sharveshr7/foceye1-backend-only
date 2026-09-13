@@ -106,11 +106,17 @@ async def get_current_user(
             detail="Invalid token: missing subject identity.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    email = payload.get("email", "user@foceye.clinic")
+    email = payload.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing user email.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     role = payload.get("role", "clinician")
-    full_name = payload.get("full_name", "Clinical Specialist")
-    clinic_name = payload.get("clinic_name", "FOCEYE Ophthalmic Center")
-    hospital_name = payload.get("hospital_name", clinic_name)
+    full_name = payload.get("full_name") or email.split("@")[0]
+    clinic_name = payload.get("clinic_name")
+    hospital_name = payload.get("hospital_name") or clinic_name
     hospital_registration_number = payload.get("hospital_registration_number")
     hospital_type = payload.get("hospital_type")
     mobile_number = payload.get("mobile_number")

@@ -51,7 +51,7 @@ async def get_patient(patient_id: str, user: UserProfile = Depends(get_current_u
 @router.post("", response_model=PatientResponse, status_code=status.HTTP_201_CREATED)
 async def create_patient(
     patient_in: PatientCreate,
-    user: UserProfile = Depends(require_role(["clinician", "admin", "therapist"]))
+    user: UserProfile = Depends(require_role(["clinician", "admin", "therapist", "hospital_staff"]))
 ):
     patient_dict = patient_in.model_dump()
     patient_dict["id"] = str(uuid.uuid4())
@@ -62,11 +62,17 @@ async def create_patient(
         patient_dict["condition"] = "Pending Eye Test"
     if not patient_dict.get("stage"):
         patient_dict["stage"] = patient_dict.get("clinical_status") or "EYE_TEST_PENDING"
+    if not patient_dict.get("assigned_doctor"):
+        patient_dict["assigned_doctor"] = user.full_name
+    if not patient_dict.get("hospital_name") and (user.hospital_name or user.clinic_name):
+        patient_dict["hospital_name"] = user.hospital_name or user.clinic_name
 
     db_columns = {
         "id", "name", "age", "gender", "condition", "icd10",
-        "stage", "adherence", "last_session", "visual_acuity_left",
-        "visual_acuity_right", "bcea_score", "created_at"
+        "stage", "clinical_status", "initial_observation",
+        "observed_pattern", "recommended_therapy", "assigned_doctor",
+        "adherence", "last_session", "visual_acuity_left",
+        "visual_acuity_right", "bcea_score", "created_at", "hospital_name"
     }
     insert_payload = {k: v for k, v in patient_dict.items() if k in db_columns}
     try:
@@ -86,9 +92,19 @@ async def update_patient(
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
+    # Verify patient exists
+    existing_res = supabase.table("patients").select("*").eq("id", patient_id).execute()
+    if not existing_res.data or len(existing_res.data) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Patient with ID {patient_id} not found"
+        )
+
     db_columns = {
         "name", "age", "gender", "condition", "icd10",
-        "stage", "adherence", "last_session", "visual_acuity_left",
+        "stage", "clinical_status", "initial_observation",
+        "observed_pattern", "recommended_therapy", "assigned_doctor",
+        "adherence", "last_session", "visual_acuity_left",
         "visual_acuity_right", "bcea_score"
     }
     db_update = {k: v for k, v in update_data.items() if k in db_columns}
@@ -98,7 +114,7 @@ async def update_patient(
         except Exception:
             pass
 
-    # Fetch updated or return merged
+    # Fetch updated record
     try:
         updated = supabase.table("patients").select("*").eq("id", patient_id).execute()
         if updated.data and len(updated.data) > 0:
@@ -111,19 +127,9 @@ async def update_patient(
     except Exception:
         pass
 
-    # Fallback to update_data merged with patient_id
-    fallback_patient = {
-        "id": patient_id,
-        "name": update_data.get("name", "Updated Patient"),
-        "age": update_data.get("age", 25),
-        "gender": update_data.get("gender", "Other"),
-        "condition": update_data.get("condition", "Pending Eye Test"),
-        "clinical_status": update_data.get("clinical_status", "EYE_TEST_PENDING"),
-        "stage": update_data.get("stage", "EYE_TEST_PENDING"),
-        "last_session": datetime.now().strftime("%Y-%m-%d"),
-        **update_data
-    }
-    return fallback_patient
+    # Fallback to merging existing record with update_data
+    merged = {**existing_res.data[0], **update_data}
+    return merged
 
 
 @router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)

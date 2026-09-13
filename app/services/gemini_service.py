@@ -65,12 +65,12 @@ class GeminiService:
 
     @property
     def default_model(self) -> str:
-        model = (os.getenv("GEMINI_MODEL") or settings.GEMINI_MODEL or "gemini-3.5-flash-lite").strip()
-        return model or "gemini-3.5-flash-lite"
+        model = (os.getenv("GEMINI_MODEL") or settings.GEMINI_MODEL or "gemini-3.6-flash").strip()
+        return model or "gemini-3.6-flash"
 
     def get_candidate_models(self) -> List[str]:
         preferred = self.default_model
-        fallbacks = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-flash-lite-latest"]
+        fallbacks = ["gemini-3.6-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"]
         models = [preferred] + [m for m in fallbacks if m != preferred]
         return models
 

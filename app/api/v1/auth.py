@@ -107,30 +107,10 @@ async def login(request: UserLoginRequest):
             new_hash = hash_password(request.password)
             supabase.table("profiles").update({"password_hash": new_hash}).eq("id", user_record["id"]).execute()
     else:
-        # Default clinic accounts provisioned for initial station login
-        if email_clean in ["dr.smith@foceye.clinic", "admin@foceye.clinic", "clinician@foceye.clinic"]:
-            hashed_pwd = hash_password(request.password)
-            user_record = {
-                "id": f"user-{uuid.uuid4().hex[:12]}",
-                "email": email_clean,
-                "full_name": "Dr. Sarah Smith, OD",
-                "role": "clinician",
-                "clinic_name": "FOCEYE Ophthalmic Center",
-                "hospital_name": "FOCEYE Vision Hospital",
-                "hospital_registration_number": "HOSP-REG-2026-001",
-                "hospital_type": "Eye Care Center",
-                "mobile_number": "+1 (555) 019-2831",
-                "city": "Boston",
-                "state": "MA",
-                "password_hash": hashed_pwd,
-                "created_at": datetime.now().isoformat()
-            }
-            supabase.table("profiles").insert(user_record).execute()
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid clinician credentials. No account registered with this email."
-            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid clinician credentials. No account registered with this email."
+        )
 
     token = create_access_token({
         "sub": user_record["id"],
@@ -235,19 +215,25 @@ async def get_current_user_profile(user: UserProfile = Depends(get_current_user)
 async def list_staff_members(user: UserProfile = Depends(get_current_user)):
     res = supabase.table("profiles").select("*").execute()
     profiles = res.data or []
+    
+    patients_res = supabase.table("patients").select("assigned_doctor").execute()
+    patients = patients_res.data or []
+
     staff_list = []
     for p in profiles:
+        doc_name = p.get("full_name", "")
+        assigned_count = sum(1 for pat in patients if pat.get("assigned_doctor") == doc_name)
         staff_list.append({
             "id": p.get("id"),
-            "hospitalId": "hosp-foceye-main",
-            "name": p.get("full_name", "Staff Member"),
+            "hospitalId": p.get("hospital_name") or user.hospital_name or "hosp-foceye-main",
+            "name": doc_name or "Staff Member",
             "email": p.get("email"),
             "role": "DOCTOR" if p.get("role") == "clinician" else "THERAPIST",
             "department": p.get("clinic_name", "Vision Therapy"),
-            "phone": "+1 (555) 012-3456",
+            "phone": p.get("mobile_number") or "",
             "status": "ACTIVE",
-            "assignedPatientsCount": 4,
-            "joinDate": p.get("created_at", "2026-01-01").split("T")[0]
+            "assignedPatientsCount": assigned_count,
+            "joinDate": p.get("created_at", datetime.now().isoformat()).split("T")[0]
         })
     return staff_list
 

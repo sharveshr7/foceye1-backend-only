@@ -11,6 +11,7 @@ class PatientCreate(BaseModel):
     clinical_status: Optional[str] = "EYE_TEST_PENDING"
     observed_pattern: Optional[str] = None
     recommended_therapy: Optional[str] = None
+    assigned_doctor: Optional[str] = None
     icd10: Optional[str] = "H53.00"
     stage: Optional[str] = "EYE_TEST_PENDING"
     adherence: Optional[int] = 100
@@ -28,6 +29,7 @@ class PatientUpdate(BaseModel):
     clinical_status: Optional[str] = None
     observed_pattern: Optional[str] = None
     recommended_therapy: Optional[str] = None
+    assigned_doctor: Optional[str] = None
     icd10: Optional[str] = None
     stage: Optional[str] = None
     adherence: Optional[int] = None
