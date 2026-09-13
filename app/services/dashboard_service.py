@@ -255,7 +255,7 @@ class DashboardService:
                     reason=ad.get("reason") or "Difficulty adaptation generated based on performance metrics.",
                     priority="urgent" if is_discomfort else "medium",
                     created_at=ad.get("created_at") or datetime.now().isoformat(),
-                    target_route=f"/profile?patientId={pid}&tab=therapy",
+                    target_route=f"/adaptive-therapy/{pid}",
                     can_act=can_act,
                     metadata={"adaptation_id": ad.get("id"), "direction": direction}
                 ))
