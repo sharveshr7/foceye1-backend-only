@@ -37,6 +37,65 @@ DEFAULT_MAX_DAILY_INCREASE = 1
 
 class AdaptiveTherapyService:
     @staticmethod
+    def _insert_config(record: Dict[str, Any]):
+        db_cols = {
+            "id", "patient_id", "therapy_assignment_id", "exercise_id",
+            "enabled", "adaptive_mode", "minimum_difficulty", "maximum_difficulty",
+            "starting_difficulty", "current_difficulty", "progression_threshold",
+            "regression_threshold", "step_size", "minimum_sessions_before_adaptation",
+            "max_daily_difficulty_increase", "clinician_approval_required",
+            "created_by", "created_at", "updated_at"
+        }
+        clean = {k: v for k, v in record.items() if k in db_cols and v is not None}
+        return supabase.table("adaptive_therapy_configs").insert(clean).execute()
+
+    @staticmethod
+    def _insert_recommendation(record: Dict[str, Any]):
+        db_cols = {
+            "id", "patient_id", "config_id", "therapy_assignment_id", "exercise_id",
+            "source_session_id", "current_difficulty", "recommended_difficulty",
+            "direction", "reason", "supporting_metrics", "confidence",
+            "data_quality_note", "is_simulated_data", "approval_status", "status",
+            "reviewed_by", "clinician_note", "reviewed_at", "applied_at", "created_at"
+        }
+        clean = {k: v for k, v in record.items() if k in db_cols and v is not None}
+        return supabase.table("therapy_adaptation_recommendations").insert(clean).execute()
+
+    @staticmethod
+    def _insert_audit(record: Dict[str, Any]):
+        clean = {
+            "id": record.get("id"),
+            "patient_id": record.get("patient_id"),
+            "config_id": record.get("config_id"),
+            "action_type": record.get("action_type") or record.get("change_type") or "change",
+            "previous_difficulty": record.get("previous_difficulty"),
+            "new_difficulty": record.get("new_difficulty"),
+            "clinician_id": record.get("clinician_id") or record.get("applied_by") or "clinician",
+            "notes": record.get("notes") or record.get("trigger") or "",
+            "created_at": record.get("created_at") or record.get("applied_at") or datetime.now().isoformat(),
+        }
+        db_cols = {
+            "id", "patient_id", "config_id", "action_type",
+            "previous_difficulty", "new_difficulty", "clinician_id",
+            "notes", "created_at"
+        }
+        payload = {k: v for k, v in clean.items() if k in db_cols and v is not None}
+        return supabase.table("therapy_adaptation_audits").insert(payload).execute()
+
+    @staticmethod
+    def _update_config_table(config_id: str, updates: Dict[str, Any]):
+        db_cols = {
+            "patient_id", "therapy_assignment_id", "exercise_id",
+            "enabled", "adaptive_mode", "minimum_difficulty", "maximum_difficulty",
+            "starting_difficulty", "current_difficulty", "progression_threshold",
+            "regression_threshold", "step_size", "minimum_sessions_before_adaptation",
+            "max_daily_difficulty_increase", "clinician_approval_required",
+            "created_by", "updated_at"
+        }
+        clean = {k: v for k, v in updates.items() if k in db_cols and v is not None}
+        return supabase.table("adaptive_therapy_configs").update(clean).eq("id", config_id).execute()
+
+    @staticmethod
     def _verify_patient(patient_id: str) -> Dict[str, Any]:
         res = supabase.table("patients").select("*").eq("id", patient_id).execute()
         if not res.data:
@@ -86,13 +145,14 @@ class AdaptiveTherapyService:
             "updated_at": now_iso,
             "notice": "Controlled rule-based difficulty adaptation. Does not diagnose or determine recovery. Follow clinician guidance."
         }
-        supabase.table("adaptive_therapy_configs").insert(record).execute()
+        AdaptiveTherapyService._insert_config(record)
 
         # Audit initial configuration
         audit_id = f"taa-{uuid.uuid4().hex[:12]}"
         audit_record = {
             "id": audit_id,
             "patient_id": patient_id,
+            "config_id": config_id,
             "exercise_id": exercise_id,
             "previous_difficulty": DEFAULT_STARTING_DIFFICULTY,
             "new_difficulty": DEFAULT_STARTING_DIFFICULTY,
@@ -103,7 +163,7 @@ class AdaptiveTherapyService:
             "applied_at": now_iso,
             "notes": "Initial adaptive difficulty configuration established with safe defaults."
         }
-        supabase.table("therapy_adaptation_audits").insert(audit_record).execute()
+        AdaptiveTherapyService._insert_audit(audit_record)
 
         return record
 
@@ -154,7 +214,7 @@ class AdaptiveTherapyService:
             "updated_at": now_iso,
             "notice": "Controlled rule-based difficulty adaptation. Does not diagnose or determine recovery. Follow clinician guidance."
         }
-        supabase.table("adaptive_therapy_configs").insert(record).execute()
+        AdaptiveTherapyService._insert_config(record)
         return record
 
     @staticmethod
@@ -201,7 +261,7 @@ class AdaptiveTherapyService:
         now_iso = datetime.now().isoformat()
         updates["updated_at"] = now_iso
 
-        supabase.table("adaptive_therapy_configs").update(updates).eq("id", config_id).execute()
+        AdaptiveTherapyService._update_config_table(config_id, updates)
         config.update(updates)
         config["notice"] = "Controlled rule-based difficulty adaptation. Does not diagnose or determine recovery. Follow clinician guidance."
         return config
@@ -286,7 +346,7 @@ class AdaptiveTherapyService:
                 "created_at": now_iso,
                 "notice": "Suggested difficulty adjustment based on performance rules. Requires clinician review before application when configured."
             }
-            supabase.table("therapy_adaptation_recommendations").insert(rec_record).execute()
+            AdaptiveTherapyService._insert_recommendation(rec_record)
             return rec_record
 
         # RULE 2: DATA QUALITY & INCOMPLETE SESSIONS CHECK
@@ -321,7 +381,7 @@ class AdaptiveTherapyService:
                 "created_at": now_iso,
                 "notice": "Suggested difficulty adjustment based on performance rules. Requires clinician review before application when configured."
             }
-            supabase.table("therapy_adaptation_recommendations").insert(rec_record).execute()
+            AdaptiveTherapyService._insert_recommendation(rec_record)
             return rec_record
 
         # RULE 3: RETRIEVE HISTORICAL COMPLETED SESSIONS FOR EVALUATION
@@ -374,7 +434,7 @@ class AdaptiveTherapyService:
                 "created_at": now_iso,
                 "notice": "Suggested difficulty adjustment based on performance rules. Requires clinician review before application when configured."
             }
-            supabase.table("therapy_adaptation_recommendations").insert(rec_record).execute()
+            AdaptiveTherapyService._insert_recommendation(rec_record)
             return rec_record
 
         # RULE 4: PERFORMANCE AGGREGATION ACROSS LAST N SESSIONS
@@ -489,16 +549,17 @@ class AdaptiveTherapyService:
             prev_diff = current_diff
             config["current_difficulty"] = recommended_diff
             config["updated_at"] = now_iso
-            supabase.table("adaptive_therapy_configs").update({
+            AdaptiveTherapyService._update_config_table(config["id"], {
                 "current_difficulty": recommended_diff,
                 "updated_at": now_iso
-            }).eq("id", config["id"]).execute()
+            })
 
             # Create audit record
             audit_id = f"taa-{uuid.uuid4().hex[:12]}"
             audit_rec = {
                 "id": audit_id,
                 "patient_id": patient_id,
+                "config_id": config.get("id"),
                 "exercise_id": exercise_id,
                 "previous_difficulty": prev_diff,
                 "new_difficulty": recommended_diff,
@@ -509,7 +570,7 @@ class AdaptiveTherapyService:
                 "applied_at": now_iso,
                 "notes": f"Automatic {direction} applied per clinician configuration."
             }
-            supabase.table("therapy_adaptation_audits").insert(audit_rec).execute()
+            AdaptiveTherapyService._insert_audit(audit_rec)
 
         rec_record = {
             "id": rec_id,
@@ -533,7 +594,7 @@ class AdaptiveTherapyService:
             "created_at": now_iso,
             "notice": "Suggested difficulty adjustment based on performance rules. Requires clinician review before application when configured."
         }
-        supabase.table("therapy_adaptation_recommendations").insert(rec_record).execute()
+        AdaptiveTherapyService._insert_recommendation(rec_record)
         return rec_record
 
     @staticmethod
@@ -581,16 +642,17 @@ class AdaptiveTherapyService:
             # Update config
             config["current_difficulty"] = new_diff
             config["updated_at"] = now_iso
-            supabase.table("adaptive_therapy_configs").update({
+            AdaptiveTherapyService._update_config_table(config["id"], {
                 "current_difficulty": new_diff,
                 "updated_at": now_iso
-            }).eq("id", config["id"]).execute()
+            })
 
             # Audit
             audit_id = f"taa-{uuid.uuid4().hex[:12]}"
             audit_rec = {
                 "id": audit_id,
                 "patient_id": patient_id,
+                "config_id": config.get("id"),
                 "exercise_id": exercise_id,
                 "previous_difficulty": prev_diff,
                 "new_difficulty": new_diff,
@@ -601,7 +663,7 @@ class AdaptiveTherapyService:
                 "applied_at": now_iso,
                 "notes": payload.clinician_notes or "Clinician approved recommended difficulty."
             }
-            supabase.table("therapy_adaptation_audits").insert(audit_rec).execute()
+            AdaptiveTherapyService._insert_audit(audit_rec)
 
         elif payload.action == "reject":
             rec["status"] = "rejected"
@@ -633,16 +695,17 @@ class AdaptiveTherapyService:
             # Update config
             config["current_difficulty"] = override_val
             config["updated_at"] = now_iso
-            supabase.table("adaptive_therapy_configs").update({
+            AdaptiveTherapyService._update_config_table(config["id"], {
                 "current_difficulty": override_val,
                 "updated_at": now_iso
-            }).eq("id", config["id"]).execute()
+            })
 
             # Audit
             audit_id = f"taa-{uuid.uuid4().hex[:12]}"
             audit_rec = {
                 "id": audit_id,
                 "patient_id": patient_id,
+                "config_id": config.get("id"),
                 "exercise_id": exercise_id,
                 "previous_difficulty": prev_diff,
                 "new_difficulty": override_val,
@@ -653,15 +716,12 @@ class AdaptiveTherapyService:
                 "applied_at": now_iso,
                 "notes": payload.clinician_notes or f"Clinician manually adjusted difficulty to Level {override_val}."
             }
-            supabase.table("therapy_adaptation_audits").insert(audit_rec).execute()
+            AdaptiveTherapyService._insert_audit(audit_rec)
 
-        supabase.table("therapy_adaptation_recommendations").update({
-            "status": rec["status"],
-            "reviewed_by": rec.get("reviewed_by"),
-            "clinician_note": rec.get("clinician_note"),
-            "reviewed_at": rec.get("reviewed_at"),
-            "applied_at": rec.get("applied_at")
-        }).eq("id", recommendation_id).execute()
+        # Update recommendation table
+        db_rec_cols = {"status", "reviewed_by", "clinician_note", "reviewed_at", "applied_at"}
+        clean_rec_updates = {k: rec.get(k) for k in db_rec_cols if k in rec and rec.get(k) is not None}
+        supabase.table("therapy_adaptation_recommendations").update(clean_rec_updates).eq("id", recommendation_id).execute()
 
         rec["notice"] = "Suggested difficulty adjustment based on performance rules. Requires clinician review before application when configured."
         return rec
@@ -683,16 +743,17 @@ class AdaptiveTherapyService:
         config["current_difficulty"] = starting_diff
         config["updated_at"] = now_iso
 
-        supabase.table("adaptive_therapy_configs").update({
+        AdaptiveTherapyService._update_config_table(config_id, {
             "current_difficulty": starting_diff,
             "updated_at": now_iso
-        }).eq("id", config_id).execute()
+        })
 
         # Audit
         audit_id = f"taa-{uuid.uuid4().hex[:12]}"
         audit_rec = {
             "id": audit_id,
             "patient_id": config["patient_id"],
+            "config_id": config_id,
             "exercise_id": config["exercise_id"],
             "previous_difficulty": prev_diff,
             "new_difficulty": starting_diff,
@@ -703,7 +764,7 @@ class AdaptiveTherapyService:
             "applied_at": now_iso,
             "notes": notes or f"Difficulty reset to starting baseline (Level {starting_diff})."
         }
-        supabase.table("therapy_adaptation_audits").insert(audit_rec).execute()
+        AdaptiveTherapyService._insert_audit(audit_rec)
 
         config["notice"] = "Controlled rule-based difficulty adaptation. Does not diagnose or determine recovery. Follow clinician guidance."
         return config

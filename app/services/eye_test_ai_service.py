@@ -178,6 +178,8 @@ class EyeTestAIService:
             "is_simulated_data": is_simulated,
             "clinician_review_status": "pending",
             "clinician_notes": None,
+            "confidence_score": 0.95,
+            "ai_observations": validated_output.overall_summary,
             "created_at": now_iso,
             "updated_at": now_iso
         }

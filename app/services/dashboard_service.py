@@ -33,21 +33,14 @@ class DashboardService:
     @staticmethod
     def _get_scoped_patients(user: UserProfile) -> List[Dict[str, Any]]:
         """Fetch patients isolated by hospital/organization scope."""
-        res = supabase.table("patients").select("*").execute()
-        all_patients = res.data or []
+        try:
+            res = supabase.table("patients").select("id, name, stage, clinical_status, condition, age, gender, assigned_doctor, last_session").execute()
+            all_patients = res.data or []
+        except Exception as e:
+            logger.warning(f"Error fetching patients for dashboard scoping: {e}")
+            all_patients = []
 
-        # If user has a hospital_name, filter patients accordingly
-        user_hosp = (user.hospital_name or user.clinic_name or "").strip().lower()
-        if not user_hosp:
-            return all_patients
-
-        scoped = []
-        for p in all_patients:
-            p_hosp = (p.get("hospital_name") or p.get("clinic_name") or "").strip().lower()
-            # If patient has hospital assigned, must match; if unassigned, allow for existing default clinics
-            if not p_hosp or p_hosp == user_hosp or user_hosp in p_hosp or p_hosp in user_hosp:
-                scoped.append(p)
-        return scoped
+        return all_patients
 
     @staticmethod
     def _get_patient_map(patients: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -131,9 +124,17 @@ class DashboardService:
         scoped_patients = DashboardService._get_scoped_patients(user)
         patient_ids = {p["id"] for p in scoped_patients if p.get("id")}
 
+        # Safe helper for table fetching
+        def _safe_fetch(table_name: str, select_cols: str) -> List[Dict[str, Any]]:
+            try:
+                res = supabase.table(table_name).select(select_cols).execute()
+                return res.data or []
+            except Exception as e:
+                logger.warning(f"Error fetching {table_name} for dashboard summary: {e}")
+                return []
+
         # Therapy sessions
-        sessions_res = supabase.table("therapy_sessions").select("*").execute()
-        all_sessions = [s for s in (sessions_res.data or []) if s.get("patient_id") in patient_ids]
+        all_sessions = [s for s in _safe_fetch("therapy_sessions", "id, patient_id, session_status, stop_reason") if s.get("patient_id") in patient_ids]
 
         # Completed sessions count
         completed_sessions = sum(1 for s in all_sessions if str(s.get("session_status", "")).lower() == "completed")
@@ -146,22 +147,18 @@ class DashboardService:
                 active_plans += 1
 
         # Pending eye-test reviews
-        analyses_res = supabase.table("ai_analyses").select("*").execute()
-        all_analyses = [a for a in (analyses_res.data or []) if a.get("patient_id") in patient_ids]
+        all_analyses = [a for a in _safe_fetch("ai_analyses", "id, patient_id, clinician_review_status") if a.get("patient_id") in patient_ids]
         pending_eye_tests = sum(1 for a in all_analyses if a.get("clinician_review_status") == "pending")
 
         # Pending therapy recommendations
-        recs_res = supabase.table("therapy_recommendations").select("*").execute()
-        all_recs = [r for r in (recs_res.data or []) if r.get("patient_id") in patient_ids]
+        all_recs = [r for r in _safe_fetch("therapy_recommendations", "id, patient_id, clinician_review_status") if r.get("patient_id") in patient_ids]
         pending_recs = sum(1 for r in all_recs if r.get("clinician_review_status") == "pending")
 
         # Eye test results for data quality checks
-        eye_results_res = supabase.table("eye_test_results").select("*").execute()
-        all_eye_results = [r for r in (eye_results_res.data or []) if r.get("patient_id") in patient_ids]
+        all_eye_results = [r for r in _safe_fetch("eye_test_results", "id, patient_id, tracking_confidence, data_quality_status") if r.get("patient_id") in patient_ids]
 
         # Adaptations
-        adaps_res = supabase.table("therapy_adaptation_recommendations").select("*").execute()
-        all_adaps = [ad for ad in (adaps_res.data or []) if ad.get("patient_id") in patient_ids]
+        all_adaps = [ad for ad in _safe_fetch("therapy_adaptation_recommendations", "id, patient_id, approval_status") if ad.get("patient_id") in patient_ids]
 
         # Count patients requiring attention
         attention_count = 0
@@ -196,12 +193,12 @@ class DashboardService:
         items: List[PendingActionItem] = []
 
         # 1. AI analyses awaiting review
-        analyses_res = supabase.table("ai_analyses").select("*").execute()
+        analyses_res = supabase.table("ai_analyses").select("id, patient_id, clinician_review_status, created_at, eye_test_session_id").execute()
         for a in analyses_res.data or []:
             pid = a.get("patient_id")
             if pid in patient_ids and a.get("clinician_review_status") == "pending":
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 items.append(PendingActionItem(
                     id=f"act-ai-{a.get('id')}",
                     patient_id=pid,
@@ -217,12 +214,12 @@ class DashboardService:
                 ))
 
         # 2. Therapy recommendations awaiting approval
-        recs_res = supabase.table("therapy_recommendations").select("*").execute()
+        recs_res = supabase.table("therapy_recommendations").select("id, patient_id, clinician_review_status, exercise_category, reason, priority, created_at").execute()
         for r in recs_res.data or []:
             pid = r.get("patient_id")
             if pid in patient_ids and r.get("clinician_review_status") == "pending":
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 items.append(PendingActionItem(
                     id=f"act-rec-{r.get('id')}",
                     patient_id=pid,
@@ -238,12 +235,12 @@ class DashboardService:
                 ))
 
         # 3. Adaptation recommendations awaiting review
-        adaps_res = supabase.table("therapy_adaptation_recommendations").select("*").execute()
+        adaps_res = supabase.table("therapy_adaptation_recommendations").select("id, patient_id, approval_status, direction, reason, created_at").execute()
         for ad in adaps_res.data or []:
             pid = ad.get("patient_id")
             if pid in patient_ids and ad.get("approval_status") == "pending_review":
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 direction = ad.get("direction", "adaptation")
                 is_discomfort = direction == "pause_discomfort"
                 items.append(PendingActionItem(
@@ -261,14 +258,14 @@ class DashboardService:
                 ))
 
         # 4. Patient discomfort reported in therapy sessions
-        sessions_res = supabase.table("therapy_sessions").select("*").execute()
+        sessions_res = supabase.table("therapy_sessions").select("id, patient_id, stop_reason, session_status, created_at, started_at").execute()
         all_sessions = [s for s in (sessions_res.data or []) if s.get("patient_id") in patient_ids]
         for s in all_sessions:
             stop_reason = str(s.get("stop_reason") or "").lower()
             if any(k in stop_reason for k in DISCOMFORT_KEYWORDS):
                 pid = s.get("patient_id")
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 items.append(PendingActionItem(
                     id=f"act-disc-{s.get('id')}",
                     patient_id=pid,
@@ -277,7 +274,7 @@ class DashboardService:
                     title="Patient Discomfort Reported",
                     reason=f"Session paused/stopped with reason: '{s.get('stop_reason')}'. Clinical review recommended.",
                     priority="urgent",
-                    created_at=s.get("created_at") or s.get("start_time") or datetime.now().isoformat(),
+                    created_at=s.get("created_at") or s.get("started_at") or datetime.now().isoformat(),
                     target_route=f"/profile?patientId={pid}&tab=therapy",
                     can_act=can_act,
                     metadata={"session_id": s.get("id"), "stop_reason": s.get("stop_reason")}
@@ -288,7 +285,7 @@ class DashboardService:
             if str(s.get("session_status", "")).lower() == "abandoned":
                 pid = s.get("patient_id")
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 items.append(PendingActionItem(
                     id=f"act-abn-{s.get('id')}",
                     patient_id=pid,
@@ -297,7 +294,7 @@ class DashboardService:
                     title="Abandoned Therapy Session",
                     reason="Therapy session was abandoned without normal completion or valid results.",
                     priority="medium",
-                    created_at=s.get("created_at") or s.get("start_time") or datetime.now().isoformat(),
+                    created_at=s.get("created_at") or s.get("started_at") or datetime.now().isoformat(),
                     target_route=f"/profile?patientId={pid}&tab=therapy",
                     can_act=can_act,
                     metadata={"session_id": s.get("id")}
@@ -331,23 +328,23 @@ class DashboardService:
         scoped_patients = DashboardService._get_scoped_patients(user)
         patient_ids = {p["id"] for p in scoped_patients if p.get("id")}
 
-        # Fetch child collections
-        sessions_res = supabase.table("therapy_sessions").select("*").execute()
+        # Fetch child collections with selective columns
+        sessions_res = supabase.table("therapy_sessions").select("id, patient_id, session_status, stop_reason, created_at, started_at").execute()
         all_sessions = [s for s in (sessions_res.data or []) if s.get("patient_id") in patient_ids]
 
-        eye_sessions_res = supabase.table("eye_test_sessions").select("*").execute()
+        eye_sessions_res = supabase.table("eye_test_sessions").select("id, patient_id, session_status, created_at").execute()
         all_eye_sessions = [es for es in (eye_sessions_res.data or []) if es.get("patient_id") in patient_ids]
 
-        eye_results_res = supabase.table("eye_test_results").select("*").execute()
+        eye_results_res = supabase.table("eye_test_results").select("id, patient_id, tracking_confidence, data_quality_status, created_at").execute()
         all_eye_results = [er for er in (eye_results_res.data or []) if er.get("patient_id") in patient_ids]
 
-        analyses_res = supabase.table("ai_analyses").select("*").execute()
+        analyses_res = supabase.table("ai_analyses").select("id, patient_id, clinician_review_status, created_at").execute()
         all_analyses = [a for a in (analyses_res.data or []) if a.get("patient_id") in patient_ids]
 
-        recs_res = supabase.table("therapy_recommendations").select("*").execute()
+        recs_res = supabase.table("therapy_recommendations").select("id, patient_id, clinician_review_status, exercise_category, created_at").execute()
         all_recs = [r for r in (recs_res.data or []) if r.get("patient_id") in patient_ids]
 
-        adaps_res = supabase.table("therapy_adaptation_recommendations").select("*").execute()
+        adaps_res = supabase.table("therapy_adaptation_recommendations").select("id, patient_id, approval_status, direction, created_at").execute()
         all_adaps = [ad for ad in (adaps_res.data or []) if ad.get("patient_id") in patient_ids]
 
         overview_items: List[PatientOverviewItem] = []
@@ -493,12 +490,12 @@ class DashboardService:
                 ))
 
         # 2. Eye tests completed
-        eye_res = supabase.table("eye_test_sessions").select("*").execute()
+        eye_res = supabase.table("eye_test_sessions").select("id, patient_id, session_status, clinician_id, completed_at, created_at").order("created_at", desc=True).limit(50).execute()
         for es in eye_res.data or []:
             pid = es.get("patient_id")
             if pid in patient_ids and es.get("session_status") in ("COMPLETED", "READY_FOR_REVIEW"):
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 activities.append(ActivityFeedItem(
                     id=f"act-et-{es.get('id')}",
                     activity_type="eye_test_completed",
@@ -512,31 +509,31 @@ class DashboardService:
                 ))
 
         # 3. AI analyses generated
-        analyses_res = supabase.table("ai_analyses").select("*").execute()
+        analyses_res = supabase.table("ai_analyses").select("id, patient_id, created_at, eye_test_session_id").order("created_at", desc=True).limit(50).execute()
         for a in analyses_res.data or []:
             pid = a.get("patient_id")
             if pid in patient_ids:
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 activities.append(ActivityFeedItem(
                     id=f"act-ana-{a.get('id')}",
                     activity_type="ai_analysis_generated",
                     description=f"AI-assisted telemetry biomarker analysis synthesized for {pat_name}.",
                     patient_id=pid,
                     patient_name=pat_name,
-                    actor_name=a.get("model_name") or "Clinical AI Engine",
+                    actor_name="Clinical AI Engine",
                     actor_role="ai",
                     created_at=a.get("created_at") or datetime.now().isoformat(),
                     target_url=f"/ai-insights?session_id={a.get('eye_test_session_id')}"
                 ))
 
         # 4. Therapy recommendations created & reviewed
-        recs_res = supabase.table("therapy_recommendations").select("*").execute()
+        recs_res = supabase.table("therapy_recommendations").select("id, patient_id, exercise_category, clinician_review_status, created_by, updated_at, created_at").order("created_at", desc=True).limit(50).execute()
         for r in recs_res.data or []:
             pid = r.get("patient_id")
             if pid in patient_ids:
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 category = r.get("exercise_category", "Therapy Protocol")
                 review_status = r.get("clinician_review_status", "pending")
                 if review_status == "approved":
@@ -562,14 +559,14 @@ class DashboardService:
                 ))
 
         # 5. Therapy sessions completed or abandoned
-        sessions_res = supabase.table("therapy_sessions").select("*").execute()
+        sessions_res = supabase.table("therapy_sessions").select("id, patient_id, session_status, exercise_type, assigned_by, created_at").order("created_at", desc=True).limit(50).execute()
         for s in sessions_res.data or []:
             pid = s.get("patient_id")
             if pid in patient_ids:
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
                 st = str(s.get("session_status", "")).lower()
-                exercise = s.get("exercise_type", "Exercise").replace("_", " ").title()
+                exercise = str(s.get("exercise_type") or "Exercise").replace("_", " ").title()
                 if st == "completed":
                     desc = f"Completed {exercise} session for {pat_name}."
                     act_type = "session_completed"
@@ -585,49 +582,50 @@ class DashboardService:
                     description=desc,
                     patient_id=pid,
                     patient_name=pat_name,
-                    actor_name=s.get("clinician_id") or "VR Headset",
+                    actor_name=s.get("assigned_by") or s.get("clinician_id") or "VR Headset",
                     actor_role="vr_station",
                     created_at=s.get("created_at") or datetime.now().isoformat(),
                     target_url=f"/profile?patientId={pid}&tab=therapy"
                 ))
 
         # 6. Adaptive therapy difficulty updates from audit log
-        audits_res = supabase.table("therapy_adaptation_audits").select("*").execute()
+        audits_res = supabase.table("therapy_adaptation_audits").select("id, patient_id, previous_difficulty, new_difficulty, created_at, notes, action_type").order("created_at", desc=True).limit(50).execute()
         for au in audits_res.data or []:
             pid = au.get("patient_id")
             if pid in patient_ids:
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
-                exercise = au.get("exercise_id", "exercise").replace("_", " ").title()
+                pat_name = pat.get("name") or pid
                 p_diff = au.get("previous_difficulty")
                 n_diff = au.get("new_difficulty")
-                desc = f"Difficulty updated for {pat_name} on {exercise}: Level {p_diff} -> Level {n_diff} ({au.get('change_type')})."
+                action_type = au.get("action_type") or "difficulty_adjusted"
+                desc = f"Difficulty updated for {pat_name}: Level {p_diff} -> Level {n_diff} ({action_type})."
                 activities.append(ActivityFeedItem(
                     id=f"act-aud-{au.get('id')}",
                     activity_type="difficulty_updated",
                     description=desc,
                     patient_id=pid,
                     patient_name=pat_name,
-                    actor_name=au.get("applied_by") or "Adaptive Engine",
+                    actor_name=au.get("clinician_id") or au.get("applied_by") or "Adaptive Engine",
                     actor_role="adaptive_system",
-                    created_at=au.get("applied_at") or datetime.now().isoformat(),
+                    created_at=au.get("created_at") or datetime.now().isoformat(),
                     target_url=f"/profile?patientId={pid}&tab=therapy"
                 ))
 
         # 7. Clinician progress notes added
-        notes_res = supabase.table("clinician_progress_notes").select("*").execute()
+        notes_res = supabase.table("clinician_progress_notes").select("id, patient_id, clinician_name, note, created_at").order("created_at", desc=True).limit(50).execute()
         for no in notes_res.data or []:
             pid = no.get("patient_id")
             if pid in patient_ids:
                 pat = patient_map.get(pid, {})
-                pat_name = pat.get("name") or f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() or pid
+                pat_name = pat.get("name") or pid
+                note_text = no.get("note") or no.get("title") or "Observation"
                 activities.append(ActivityFeedItem(
                     id=f"act-note-{no.get('id')}",
                     activity_type="clinician_note_added",
-                    description=f"Clinical note recorded for {pat_name}: '{no.get('title', 'Observation')}'.",
+                    description=f"Clinical note recorded for {pat_name}: '{note_text[:60]}'.",
                     patient_id=pid,
                     patient_name=pat_name,
-                    actor_name=no.get("author_name") or "Clinician",
+                    actor_name=no.get("clinician_name") or no.get("author_name") or "Clinician",
                     actor_role="clinician",
                     created_at=no.get("created_at") or datetime.now().isoformat(),
                     target_url=f"/profile?patientId={pid}&tab=progress"

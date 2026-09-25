@@ -1,32 +1,42 @@
 services:
   - type: web
     name: foceye1-backend-only
-    env: docker
-    dockerfilePath: Dockerfile
-    region: oregon
-    plan: standard
+    runtime: python
+    plan: free
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeploy: true
+
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
       - key: ENVIRONMENT
         value: production
-      - key: PORT
-        value: 10000
+
       - key: FRONTEND_URL
-        sync: false
+        value: https://foceye.vercel.app
+
       - key: CORS_ORIGINS
-        value: '["https://foceye.vercel.app","https://foceye-frontend.vercel.app","https://foceye1-backend-only.onrender.com"]'
+        value: '["https://foceye.vercel.app","https://foceye-frontend.vercel.app","https://foceye1-backend-only.onrender.com","http://localhost:5173","http://localhost:3000","http://127.0.0.1:5173","http://127.0.0.1:3000"]'
+
       - key: SUPABASE_URL
         sync: false
+
       - key: SUPABASE_KEY
         sync: false
+
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: SUPABASE_SECRET_KEY
-        sync: false
+
       - key: JWT_SECRET
         generateValue: true
+
       - key: GEMINI_API_KEY
         sync: false
+
       - key: GEMINI_MODEL
         value: gemini-3.5-flash-lite
+

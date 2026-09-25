@@ -65,12 +65,12 @@ class GeminiService:
 
     @property
     def default_model(self) -> str:
-        model = (os.getenv("GEMINI_MODEL") or settings.GEMINI_MODEL or "gemini-3.6-flash").strip()
-        return model or "gemini-3.6-flash"
+        model = (os.getenv("GEMINI_MODEL") or settings.GEMINI_MODEL or "gemini-3.5-flash-lite").strip()
+        return model or "gemini-3.5-flash-lite"
 
     def get_candidate_models(self) -> List[str]:
         preferred = self.default_model
-        fallbacks = ["gemini-3.6-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"]
+        fallbacks = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
         models = [preferred] + [m for m in fallbacks if m != preferred]
         return models
 
@@ -215,8 +215,34 @@ class GeminiService:
                 last_error_msg = f"Server error on {target_model}: {se}"
                 logger.warning(last_error_msg)
             except Exception as ex:
-                last_error_msg = f"Unexpected Gemini error on {target_model}: {ex}"
-                logger.warning(last_error_msg)
+                if "event loop" in str(ex).lower():
+                    logger.info(f"Gemini client event loop refreshed, retrying on {target_model}...")
+                    self._init_client()
+                    try:
+                        response = await self._client.aio.models.generate_content(
+                            model=target_model,
+                            contents=prompt,
+                            config=config,
+                        )
+                        if response and response.text:
+                            raw_text = response.text.strip()
+                            if raw_text.startswith("```json"):
+                                raw_text = raw_text[7:]
+                            if raw_text.startswith("```"):
+                                raw_text = raw_text[3:]
+                            if raw_text.endswith("```"):
+                                raw_text = raw_text[:-3]
+                            raw_text = raw_text.strip()
+                            match = re.search(r"(\{|\[).*(?:\}|\])", raw_text, re.DOTALL)
+                            if match:
+                                raw_text = match.group(0)
+                            return json.loads(raw_text), target_model, None
+                    except Exception as retry_err:
+                        last_error_msg = f"Gemini retry failed on {target_model}: {retry_err}"
+                        logger.warning(last_error_msg)
+                else:
+                    last_error_msg = f"Unexpected Gemini error on {target_model}: {ex}"
+                    logger.warning(last_error_msg)
 
         return None, None, last_error_msg
 
@@ -265,7 +291,21 @@ class GeminiService:
                 if ce.code in (401, 403):
                     break
             except Exception as ex:
-                last_error_msg = f"Error on {target_model}: {ex}"
+                if "event loop" in str(ex).lower():
+                    logger.info(f"Gemini client event loop refreshed for generate_text, retrying on {target_model}...")
+                    self._init_client()
+                    try:
+                        response = await self._client.aio.models.generate_content(
+                            model=target_model,
+                            contents=prompt,
+                            config=config,
+                        )
+                        if response and response.text:
+                            return response.text.strip(), target_model, None
+                    except Exception as retry_err:
+                        last_error_msg = f"Gemini retry failed on {target_model}: {retry_err}"
+                else:
+                    last_error_msg = f"Error on {target_model}: {ex}"
 
         return None, None, last_error_msg
 

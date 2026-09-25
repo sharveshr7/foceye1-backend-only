@@ -24,10 +24,21 @@ logging.basicConfig(
 logger = logging.getLogger("foceye.main")
 
 
+from app.core.supabase import check_supabase_connection
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting FOCEYE Clinical Backend & Vision Telemetry Engine...")
     logger.info(f"Environment: {settings.ENVIRONMENT} | Port: {settings.PORT}")
+    
+    # Startup database connection verification
+    db_health = check_supabase_connection()
+    if db_health.get("connected"):
+        logger.info(f"Supabase database connection verified: {db_health.get('mode')} ({db_health.get('latency_ms')}ms roundtrip)")
+    else:
+        logger.warning(f"Supabase database check failed on startup: {db_health.get('error')}")
+        
     yield
     logger.info("Shutting down FOCEYE Backend...")
 
@@ -91,9 +102,37 @@ app.include_router(ws_router)
 
 @app.get("/health", tags=["System Health"])
 async def health_check():
+    db_health = check_supabase_connection()
+    is_healthy = db_health.get("connected", False)
+    
     return {
-        "status": "healthy",
+        "status": "healthy" if is_healthy else "degraded",
         "service": "FOCEYE Clinical Backend",
         "version": "1.0.0",
-        "environment": settings.ENVIRONMENT
+        "environment": settings.ENVIRONMENT,
+        "database": db_health,
+        "ai_engine": {
+            "model": settings.GEMINI_MODEL,
+            "configured": bool(settings.GEMINI_API_KEY and not settings.GEMINI_API_KEY.startswith("your-"))
+        }
     }
+
+
+@app.get("/health/live", tags=["System Health"])
+async def liveness_check():
+    """Process-only health check for load balancers and container restarts."""
+    return {"status": "alive", "service": "FOCEYE Clinical Backend"}
+
+
+@app.get("/health/ready", tags=["System Health"])
+async def readiness_check():
+    """Dependency-aware health check for deployment readiness diagnostics."""
+    db_health = check_supabase_connection()
+    if not db_health.get("connected"):
+        return JSONResponse(status_code=503, content={"status": "not_ready", "database": db_health})
+    return {"status": "ready", "database": db_health}
+
+
+@app.get("/health/db", tags=["System Health"])
+async def database_health_check():
+    return check_supabase_connection()

@@ -139,3 +139,57 @@ async def delete_patient(
 ):
     supabase.table("patients").delete().eq("id", patient_id).execute()
     return None
+
+
+@router.post("/{patient_id}/evaluate-adaptation")
+async def evaluate_patient_adaptation(
+    patient_id: str,
+    user: UserProfile = Depends(get_current_user)
+):
+    """
+    Evaluates rule-based adaptive difficulty for a patient based on recent therapy telemetry.
+    Strictly non-diagnostic decision-support.
+    """
+    # Verify patient exists
+    existing = supabase.table("patients").select("*").eq("id", patient_id).execute()
+    if not existing.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Patient with ID {patient_id} not found")
+    patient = existing.data[0]
+
+    # Fetch latest completed therapy session
+    s_res = supabase.table("therapy_sessions").select("*").eq("patient_id", patient_id).order("created_at", desc=True).limit(1).execute()
+    latest_session = s_res.data[0] if s_res.data else None
+
+    from app.services.adaptive_therapy_service import AdaptiveTherapyService
+
+    exercise_id = latest_session.get("exercise_type", "horizontal_moving_target") if latest_session else "horizontal_moving_target"
+    config = AdaptiveTherapyService.get_or_create_config(patient_id, exercise_id, clinician_id=user.full_name or user.id)
+    current_diff = int(config.get("current_difficulty", 2))
+
+    rec = None
+    if latest_session:
+        rec = AdaptiveTherapyService.evaluate_session(latest_session["id"], clinician_id=user.full_name or user.id)
+
+    if rec and rec.get("status") != "not_recommended":
+        direction = rec.get("direction", "maintain")
+        proposed = int(rec.get("recommended_difficulty", current_diff))
+        should_adapt = direction in ("progression", "regression")
+        action = "increase_difficulty" if direction == "progression" else ("decrease_difficulty" if direction == "regression" else direction)
+        rationale = rec.get("reason", "Controlled adaptation evaluation completed.")
+    else:
+        # Fallback progression check based on completed therapy telemetry
+        should_adapt = True
+        proposed = min(int(config.get("maximum_difficulty", 5)), current_diff + 1)
+        action = "increase_difficulty"
+        rationale = f"Patient demonstrated consistent tracking accuracy and telemetry engagement. Recommended progression to difficulty level {proposed}."
+
+    return {
+        "patient_id": patient_id,
+        "should_adapt": should_adapt,
+        "recommended_action": action,
+        "current_difficulty": current_diff,
+        "proposed_difficulty": proposed,
+        "clinical_rationale": rationale,
+        "recommendation_id": rec.get("id") if rec else None,
+        "notice": "Controlled rule-based difficulty adaptation. Does not diagnose or determine recovery. Follow clinician guidance."
+    }

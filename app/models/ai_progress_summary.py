@@ -26,7 +26,7 @@ class AIProgressSummary(Base):
 
     # Status: 'completed', 'pending', 'failed'
     summary_status = Column(String(32), default="completed", nullable=False)
-    model_name = Column(String(64), default="gemini-2.5-flash", nullable=False)
+    model_name = Column(String(64), default="gemini-3.5-flash-lite", nullable=False)
 
     input_summary_json = Column(JSON, default=dict)
     output_json = Column(JSON, default=dict)

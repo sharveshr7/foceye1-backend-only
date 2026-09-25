@@ -129,22 +129,22 @@ ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
 
 -- Idempotent Policies (Drops existing policy if present before creating)
 DROP POLICY IF EXISTS "Allow authenticated read on profiles" ON profiles;
-CREATE POLICY "Allow authenticated read on profiles" ON profiles FOR SELECT USING (true);
+CREATE POLICY "Allow authenticated read on profiles" ON profiles FOR SELECT TO authenticated USING (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on profiles" ON profiles;
-CREATE POLICY "Allow authenticated full access on profiles" ON profiles FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on profiles" ON profiles FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on patients" ON patients;
-CREATE POLICY "Allow authenticated full access on patients" ON patients FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on patients" ON patients FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on therapy_sessions" ON therapy_sessions;
-CREATE POLICY "Allow authenticated full access on therapy_sessions" ON therapy_sessions FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on therapy_sessions" ON therapy_sessions FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on calibration_records" ON calibration_records;
-CREATE POLICY "Allow authenticated full access on calibration_records" ON calibration_records FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on calibration_records" ON calibration_records FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on devices" ON devices;
-CREATE POLICY "Allow authenticated full access on devices" ON devices FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on devices" ON devices FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Performance Indexes for Fast Querying
 CREATE INDEX IF NOT EXISTS idx_patients_condition ON patients(condition);
@@ -163,7 +163,8 @@ CREATE TABLE IF NOT EXISTS eye_test_sessions (
     active_test_type TEXT,
     started_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 7. Eye Test Results Table (Feature 1)
@@ -181,7 +182,8 @@ CREATE TABLE IF NOT EXISTS eye_test_results (
     data_quality_status TEXT DEFAULT 'Valid Data',
     status TEXT DEFAULT 'COMPLETED',
     notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 8. AI Analyses Table (Feature 2)
@@ -237,16 +239,16 @@ ALTER TABLE ai_analyses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE therapy_recommendations ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow authenticated full access on eye_test_sessions" ON eye_test_sessions;
-CREATE POLICY "Allow authenticated full access on eye_test_sessions" ON eye_test_sessions FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on eye_test_sessions" ON eye_test_sessions FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on eye_test_results" ON eye_test_results;
-CREATE POLICY "Allow authenticated full access on eye_test_results" ON eye_test_results FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on eye_test_results" ON eye_test_results FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on ai_analyses" ON ai_analyses;
-CREATE POLICY "Allow authenticated full access on ai_analyses" ON ai_analyses FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on ai_analyses" ON ai_analyses FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow authenticated full access on therapy_recommendations" ON therapy_recommendations;
-CREATE POLICY "Allow authenticated full access on therapy_recommendations" ON therapy_recommendations FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on therapy_recommendations" ON therapy_recommendations FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_eye_test_sessions_patient ON eye_test_sessions(patient_id);
@@ -296,9 +298,127 @@ ALTER TABLE therapy_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEF
 -- Enable RLS on therapy_session_results
 ALTER TABLE therapy_session_results ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow authenticated full access on therapy_session_results" ON therapy_session_results;
-CREATE POLICY "Allow authenticated full access on therapy_session_results" ON therapy_session_results FOR ALL USING (true);
+CREATE POLICY "Allow authenticated full access on therapy_session_results" ON therapy_session_results FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 CREATE INDEX IF NOT EXISTS idx_therapy_session_results_session ON therapy_session_results(therapy_session_id);
 CREATE INDEX IF NOT EXISTS idx_therapy_session_results_patient ON therapy_session_results(patient_id);
 
+-- 11. Adaptive Therapy Configs Table
+CREATE TABLE IF NOT EXISTS adaptive_therapy_configs (
+    id TEXT PRIMARY KEY,
+    patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+    therapy_assignment_id TEXT,
+    exercise_id TEXT NOT NULL DEFAULT 'horizontal_moving_target',
+    enabled BOOLEAN DEFAULT TRUE,
+    adaptive_mode TEXT DEFAULT 'controlled_automatic',
+    minimum_difficulty INTEGER DEFAULT 1,
+    maximum_difficulty INTEGER DEFAULT 5,
+    starting_difficulty INTEGER DEFAULT 2,
+    current_difficulty INTEGER DEFAULT 2,
+    progression_threshold REAL DEFAULT 85.0,
+    regression_threshold REAL DEFAULT 65.0,
+    step_size INTEGER DEFAULT 1,
+    minimum_sessions_before_adaptation INTEGER DEFAULT 2,
+    max_daily_difficulty_increase INTEGER DEFAULT 1,
+    clinician_approval_required BOOLEAN DEFAULT TRUE,
+    created_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE adaptive_therapy_configs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated full access on adaptive_therapy_configs" ON adaptive_therapy_configs;
+CREATE POLICY "Allow authenticated full access on adaptive_therapy_configs" ON adaptive_therapy_configs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_adaptive_therapy_configs_patient ON adaptive_therapy_configs(patient_id);
+
+-- 12. Therapy Adaptation Recommendations Table
+CREATE TABLE IF NOT EXISTS therapy_adaptation_recommendations (
+    id TEXT PRIMARY KEY,
+    patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+    config_id TEXT REFERENCES adaptive_therapy_configs(id) ON DELETE SET NULL,
+    therapy_assignment_id TEXT,
+    exercise_id TEXT NOT NULL DEFAULT 'horizontal_moving_target',
+    source_session_id TEXT,
+    current_difficulty INTEGER NOT NULL DEFAULT 2,
+    recommended_difficulty INTEGER NOT NULL DEFAULT 3,
+    direction TEXT NOT NULL DEFAULT 'progression',
+    reason TEXT NOT NULL,
+    supporting_metrics JSONB DEFAULT '{}'::jsonb,
+    confidence REAL DEFAULT 0.9,
+    data_quality_note TEXT,
+    is_simulated_data BOOLEAN DEFAULT FALSE,
+    approval_status TEXT DEFAULT 'pending_review',
+    status TEXT DEFAULT 'pending_review',
+    reviewed_by TEXT,
+    clinician_note TEXT,
+    reviewed_at TIMESTAMPTZ,
+    applied_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE therapy_adaptation_recommendations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated full access on therapy_adaptation_recommendations" ON therapy_adaptation_recommendations;
+CREATE POLICY "Allow authenticated full access on therapy_adaptation_recommendations" ON therapy_adaptation_recommendations FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_therapy_adaptation_recs_patient ON therapy_adaptation_recommendations(patient_id);
+
+-- 13. Therapy Adaptation Audits Table
+CREATE TABLE IF NOT EXISTS therapy_adaptation_audits (
+    id TEXT PRIMARY KEY,
+    patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+    config_id TEXT,
+    exercise_id TEXT,
+    action_type TEXT DEFAULT 'difficulty_adjusted',
+    previous_difficulty INTEGER NOT NULL,
+    new_difficulty INTEGER NOT NULL,
+    change_type TEXT,
+    trigger TEXT,
+    source_recommendation_id TEXT,
+    applied_by TEXT,
+    clinician_id TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE therapy_adaptation_audits ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated full access on therapy_adaptation_audits" ON therapy_adaptation_audits;
+CREATE POLICY "Allow authenticated full access on therapy_adaptation_audits" ON therapy_adaptation_audits FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_therapy_adaptation_audits_patient ON therapy_adaptation_audits(patient_id);
+
+-- 14. Clinician Progress Notes Table
+CREATE TABLE IF NOT EXISTS clinician_progress_notes (
+    id TEXT PRIMARY KEY,
+    patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+    clinician_name TEXT NOT NULL,
+    author_name TEXT,
+    title TEXT,
+    note TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE clinician_progress_notes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated full access on clinician_progress_notes" ON clinician_progress_notes;
+CREATE POLICY "Allow authenticated full access on clinician_progress_notes" ON clinician_progress_notes FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_clinician_progress_notes_patient ON clinician_progress_notes(patient_id);
+
+-- 15. In-App Notifications Table
+CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT DEFAULT 'info',
+    category TEXT,
+    priority TEXT DEFAULT 'medium',
+    related_patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+    patient_name TEXT,
+    hospital_name TEXT,
+    target_route TEXT,
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated full access on notifications" ON notifications;
+CREATE POLICY "Allow authenticated full access on notifications" ON notifications FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_notifications_patient ON notifications(related_patient_id);
 

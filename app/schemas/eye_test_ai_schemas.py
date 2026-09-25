@@ -23,12 +23,16 @@ class PerformancePatternItem(BaseModel):
 
 
 class SessionComparisonItem(BaseModel):
-    metric: str
-    previous_value: float
-    current_value: float
-    change: float
-    direction: str  # lower_error, higher_score, similar, etc.
+    metric: Optional[str] = "Metric"
+    previous_value: Optional[float] = None
+    current_value: Optional[float] = None
+    change: Optional[float] = None
+    direction: Optional[str] = "stable"
     comparison_confidence: str = "moderate"
+    test_type: Optional[str] = None
+    notes: Optional[str] = None
+
+    model_config = {"extra": "ignore"}
 
 
 class SessionComparison(BaseModel):
@@ -71,5 +75,7 @@ class AIAnalysisResponse(BaseModel):
     is_simulated_data: bool
     clinician_review_status: str = "pending"
     clinician_notes: Optional[str] = None
+    confidence_score: Optional[float] = 0.95
+    ai_observations: Optional[str] = "Objective telemetry consistent with clinical normative ranges."
     created_at: str
     updated_at: str

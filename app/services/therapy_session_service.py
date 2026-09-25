@@ -24,6 +24,10 @@ CATEGORY_TO_EXERCISE_TYPE = {
     "fixation_target": "fixation_target",
     "horizontal_moving_target": "horizontal_moving_target",
     "gaze_target_selection": "gaze_target_selection",
+    "smooth_pursuit": "horizontal_moving_target",
+    "saccade": "gaze_target_selection",
+    "fixation": "fixation_target",
+    "gaze_accuracy": "gaze_target_selection",
 }
 
 # State machine transition rules
@@ -120,8 +124,10 @@ class TherapySessionService:
                 detail=f"Invalid difficulty '{difficulty}'. Must be one of: {', '.join(sorted(VALID_DIFFICULTIES))}."
             )
 
-        session_id = f"ts-{uuid.uuid4().hex[:12]}"
+        session_id = str(uuid.uuid4())
         now_iso = datetime.now().isoformat()
+        is_simulated = bool(getattr(payload, "is_simulated_data", False))
+        data_quality = getattr(payload, "data_quality_status", "Valid Data") or ("Demo/Simulated Tracking Data" if is_simulated else "Valid Data")
 
         record = {
             "id": session_id,
@@ -131,15 +137,23 @@ class TherapySessionService:
             "exercise_type": normalized_type,
             "session_status": "ready",
             "planned_duration_seconds": duration,
+            "duration_seconds": duration,
             "actual_duration_seconds": 0,
             "difficulty": difficulty,
+            "fixation_score": 0.0,
+            "saccadic_score": 0.0,
+            "convergence_score": 0.0,
+            "overall_score": 0.0,
+            "bcea_68": 0.0,
+            "bcea_95": 0.0,
+            "clinical_notes": "Prescribed rehabilitation session initialized.",
             "started_at": None,
             "paused_at": None,
             "completed_at": None,
             "stopped_at": None,
             "stop_reason": None,
-            "data_quality_status": "Demo/Simulated Tracking Data",
-            "is_simulated_data": True,
+            "data_quality_status": data_quality,
+            "is_simulated_data": is_simulated,
             "created_at": now_iso,
             "updated_at": now_iso,
             "notice": "Prototype rehabilitation session. Follow clinician instructions. Stop if discomfort occurs. Recorded results are not a diagnosis."
@@ -189,7 +203,9 @@ class TherapySessionService:
         }
 
         if actual_duration_seconds is not None:
-            updates["actual_duration_seconds"] = max(0, actual_duration_seconds)
+            val = max(0, actual_duration_seconds)
+            updates["actual_duration_seconds"] = val
+            updates["duration_seconds"] = val
 
         if target_status == "in_progress":
             if not session.get("started_at"):
@@ -224,15 +240,20 @@ class TherapySessionService:
         result_id = f"tsr-{uuid.uuid4().hex[:12]}"
         now_iso = datetime.now().isoformat()
 
+        # Flexible resolution of field aliases
+        exercise_type = payload.exercise_type or session.get("exercise_type", "horizontal_moving_target")
+        accuracy = payload.accuracy if payload.accuracy is not None else (payload.accuracy_score if payload.accuracy_score is not None else payload.score)
+        reaction_time = payload.reaction_time if payload.reaction_time is not None else payload.reaction_time_ms
+
         record = {
             "id": result_id,
             "therapy_session_id": session_id,
             "patient_id": patient_id,
-            "exercise_type": payload.exercise_type,
+            "exercise_type": exercise_type,
             "score": payload.score,
-            "accuracy": payload.accuracy,
+            "accuracy": accuracy,
             "error_value": payload.error_value,
-            "reaction_time": payload.reaction_time,
+            "reaction_time": reaction_time,
             "completion_percentage": payload.completion_percentage,
             "valid_sample_count": payload.valid_sample_count,
             "tracking_confidence": payload.tracking_confidence,
@@ -247,6 +268,22 @@ class TherapySessionService:
         }
 
         supabase.table("therapy_session_results").insert(record).execute()
+
+        # Update therapy_sessions row with overall score and clinician notes
+        try:
+            session_updates: Dict[str, Any] = {
+                "overall_score": payload.score,
+                "updated_at": now_iso
+            }
+            if payload.clinician_notes:
+                session_updates["clinical_notes"] = payload.clinician_notes
+            if exercise_type in ["fixation_target", "fixation"]:
+                session_updates["fixation_score"] = payload.score
+            elif exercise_type in ["horizontal_moving_target", "smooth_pursuit"]:
+                session_updates["saccadic_score"] = payload.score
+            supabase.table("therapy_sessions").update(session_updates).eq("id", session_id).execute()
+        except Exception as e:
+            logger.warning(f"Could not update therapy_sessions score: {e}")
 
         # Trigger adaptive difficulty engine evaluation
         try:

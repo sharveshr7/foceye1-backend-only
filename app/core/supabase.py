@@ -998,7 +998,7 @@ class MockResponse:
 
 
 def get_supabase_client():
-    """Initializes the real Supabase client or falls back to in-memory mock."""
+    """Initializes the real Supabase client with optimized timeouts or falls back to in-memory mock."""
     key = settings.get_supabase_key()
     if (
         settings.SUPABASE_URL 
@@ -1007,8 +1007,15 @@ def get_supabase_client():
         and "mock" not in key
     ):
         try:
-            from supabase import create_client, Client
-            client: Client = create_client(settings.SUPABASE_URL, key)
+            from supabase import create_client, Client, ClientOptions
+            options = ClientOptions(
+                postgrest_client_timeout=60.0,
+                storage_client_timeout=30.0,
+                auto_refresh_token=True,
+                persist_session=True,
+                headers={"X-Client-Info": "foceye-clinical-backend/1.0.0"}
+            )
+            client: Client = create_client(settings.SUPABASE_URL, key, options=options)
             logger.info(f"Connected to live Supabase project: {settings.SUPABASE_URL}")
             return client
         except Exception as e:
@@ -1018,3 +1025,58 @@ def get_supabase_client():
 
 
 supabase = get_supabase_client()
+
+
+def execute_with_retry(query_builder, max_retries: int = 2, delay_seconds: float = 0.3):
+    """
+    Executes a Supabase PostgREST query with automatic retry on transient gateway/timeout errors.
+    """
+    import time
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return query_builder.execute()
+        except Exception as exc:
+            last_exc = exc
+            err_str = str(exc)
+            is_transient = any(code in err_str for code in ["504", "502", "503", "Gateway Timeout", "timed out", "Timeout"])
+            if is_transient and attempt < max_retries:
+                logger.warning(f"Transient Supabase error on query (attempt {attempt + 1}/{max_retries + 1}): {exc}. Retrying in {delay_seconds}s...")
+                time.sleep(delay_seconds * (attempt + 1))
+                continue
+            raise exc
+    raise last_exc
+
+
+def check_supabase_connection() -> Dict[str, Any]:
+    """
+    Performs a real-time connectivity and latency ping against the configured database.
+    Returns diagnostic telemetry: status, roundtrip latency (ms), mode, and error if any.
+    """
+    import time
+    is_live = not isinstance(supabase, MockSupabaseClient)
+    project_url = settings.SUPABASE_URL if is_live else "in_memory_mock"
+    t0 = time.time()
+    try:
+        # Perform a minimal, lightweight ping query on the patients table
+        res = supabase.table("patients").select("id").limit(1).execute()
+        latency_ms = round((time.time() - t0) * 1000, 2)
+        return {
+            "status": "healthy",
+            "connected": True,
+            "mode": "live_cloud" if is_live else "in_memory_mock",
+            "project_url": project_url,
+            "latency_ms": latency_ms,
+            "error": None
+        }
+    except Exception as e:
+        latency_ms = round((time.time() - t0) * 1000, 2)
+        logger.error(f"Supabase connection health check failed after {latency_ms}ms: {e}")
+        return {
+            "status": "unhealthy",
+            "connected": False,
+            "mode": "live_cloud" if is_live else "in_memory_mock",
+            "project_url": project_url,
+            "latency_ms": latency_ms,
+            "error": str(e)
+        }

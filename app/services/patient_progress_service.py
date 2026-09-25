@@ -212,6 +212,8 @@ class PatientProgressService:
                 unit="%",
                 baseline_value=baseline.score,
                 latest_value=latest.score,
+                current_value=latest.score,
+                trend_direction="improving" if diff > 0 else ("declining" if diff < 0 else "stable"),
                 recorded_change=diff,
                 percentage_change=pct_chg,
                 sessions_between=max(0, len(fix_points) - 2),
@@ -243,6 +245,8 @@ class PatientProgressService:
                 unit="px",
                 baseline_value=base_err,
                 latest_value=lat_err,
+                current_value=lat_err,
+                trend_direction="improving" if diff < 0 else ("declining" if diff > 0 else "stable"),
                 recorded_change=diff,
                 percentage_change=pct_chg,
                 sessions_between=max(0, len(pursuit_points) - 2),
@@ -274,6 +278,8 @@ class PatientProgressService:
                 unit="ms",
                 baseline_value=base_rt,
                 latest_value=lat_rt,
+                current_value=lat_rt,
+                trend_direction="improving" if diff < 0 else ("declining" if diff > 0 else "stable"),
                 recorded_change=diff,
                 percentage_change=pct_chg,
                 sessions_between=max(0, len(saccade_points) - 2),
@@ -303,6 +309,8 @@ class PatientProgressService:
                 unit="%",
                 baseline_value=baseline.score,
                 latest_value=latest.score,
+                current_value=latest.score,
+                trend_direction="improving" if diff > 0 else ("declining" if diff < 0 else "stable"),
                 recorded_change=diff,
                 percentage_change=pct_chg,
                 sessions_between=max(0, len(gaze_points) - 2),
@@ -364,6 +372,8 @@ class PatientProgressService:
 
         return PatientProgressOverview(
             patient_id=patient_id,
+            total_eye_tests=eye_summary.total_sessions,
+            total_therapy_sessions=therapy_summary.total_sessions,
             eye_tests_summary=eye_summary,
             therapy_sessions_summary=therapy_summary,
             completion_summary=completion_summary,
@@ -689,7 +699,7 @@ class PatientProgressService:
                         clinician_review_points=list(gemini_data.get("clinician_review_points", review_points)),
                         limitations=ret_limitations,
                     )
-                    model_used = model_name or "gemini-3.6-flash"
+                    model_used = model_name or "gemini-3.5-flash-lite"
             except Exception as e:
                 logger.warning(f"Gemini AI progress summary fallback applied: {e}")
 
@@ -793,7 +803,7 @@ class PatientProgressService:
             structured_output=structured,
             data_quality_remarks=f"Data status: {latest.get('data_quality_status', 'Valid Data')}",
             is_simulated_data=bool(latest.get("is_simulated_data", False)),
-            model_name=latest.get("model_name", "gemini-2.5-flash"),
+            model_name=latest.get("model_name", "gemini-3.5-flash-lite"),
             clinician_review_status=latest.get("clinician_review_status", "pending"),
             clinician_notes=latest.get("clinician_notes"),
             generated_at=latest.get("created_at", datetime.now().isoformat()),

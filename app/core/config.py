@@ -1,7 +1,7 @@
 import json
 import os
 from typing import List, Union
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -63,7 +63,14 @@ class Settings(BaseSettings):
             clean_frontend = self.FRONTEND_URL.strip().rstrip("/")
             if clean_frontend not in origins:
                 origins.append(clean_frontend)
-        # Guarantee default production Vercel apps are always allowed
+        # Local origins are useful during development but must not be silently
+        # allowed by a production deployment.
+        if self.ENVIRONMENT.lower() == "production":
+            origins = [
+                origin for origin in origins
+                if not origin.startswith(("http://localhost", "http://127.0.0.1"))
+            ]
+
         default_apps = [
             "https://foceye.vercel.app",
             "https://foceye-frontend.vercel.app",
@@ -74,7 +81,7 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000"
         ]
         for app in default_apps:
-            if app not in origins:
+            if self.ENVIRONMENT.lower() != "production" and app not in origins:
                 origins.append(app)
         return origins
 
@@ -103,7 +110,7 @@ class Settings(BaseSettings):
     
     # AI (Gemini)
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     
     # Auth & Security
     JWT_SECRET: str = "foceye-clinical-jwt-secret-key-change-in-production"
@@ -124,6 +131,18 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="allow"
     )
+
+    @model_validator(mode="after")
+    def validate_production_security(self):
+        if self.ENVIRONMENT.lower() == "production":
+            insecure_defaults = {
+                "foceye-clinical-jwt-secret-key-change-in-production",
+                "",
+                "your-jwt-secret",
+            }
+            if self.JWT_SECRET in insecure_defaults or len(self.JWT_SECRET) < 32:
+                raise ValueError("JWT_SECRET must be a strong secret of at least 32 characters in production")
+        return self
 
 
 settings = Settings()

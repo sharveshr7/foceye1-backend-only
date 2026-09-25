@@ -39,8 +39,10 @@ class MetricComparison(BaseModel):
     unit: str
     baseline_value: Optional[float] = None
     latest_value: Optional[float] = None
+    current_value: Optional[float] = None
     recorded_change: Optional[float] = None
     percentage_change: Optional[float] = None
+    trend_direction: Optional[str] = None
     sessions_between: int = 0
     comparison_reliability: str = "No Data"
     higher_is_better: bool = True
@@ -80,6 +82,8 @@ class DataQualitySummary(BaseModel):
 
 class PatientProgressOverview(BaseModel):
     patient_id: str
+    total_eye_tests: int = 0
+    total_therapy_sessions: int = 0
     eye_tests_summary: EyeTestsSummary
     therapy_sessions_summary: TherapySessionsSummary
     completion_summary: SessionCompletionSummary
@@ -132,7 +136,7 @@ class AIProgressSummaryResponse(BaseModel):
     structured_output: Optional[AIProgressSummaryOutput] = None
     data_quality_remarks: str = ""
     is_simulated_data: bool = False
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-3.5-flash-lite"
     clinician_review_status: str = "pending"
     clinician_notes: Optional[str] = None
     generated_at: str

@@ -54,6 +54,7 @@ class AIRecommendationOutput(BaseModel):
 class ClinicianReviewAction(BaseModel):
     action: str  # "approved", "rejected", "pending"
     clinician_notes: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class ClinicianEditAction(BaseModel):
@@ -72,6 +73,9 @@ class TherapyRecommendationResponse(BaseModel):
     ai_analysis_id: str
     recommendation_status: str
     exercise_category: str
+    primary_exercise_category: Optional[str] = None
+    recommended_difficulty_level: Optional[str] = None
+    recommended_duration_minutes: Optional[int] = None
     reason: str
     supporting_metrics_json: List[Dict[str, Any]]
     suggested_difficulty: str

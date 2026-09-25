@@ -105,7 +105,9 @@ async def get_patient_latest_result(
 
 # AI-Assisted Eye Test Analysis Endpoints
 @router.post("/sessions/{session_id}/ai-analysis", response_model=AIAnalysisResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/sessions/{session_id}/analyze", response_model=AIAnalysisResponse, status_code=status.HTTP_201_CREATED)
 @ai_alias_router.post("/eye-test-sessions/{session_id}/ai-analysis", response_model=AIAnalysisResponse, status_code=status.HTTP_201_CREATED)
+@ai_alias_router.post("/eye-test-sessions/{session_id}/analyze", response_model=AIAnalysisResponse, status_code=status.HTTP_201_CREATED)
 async def analyze_session(
     session_id: str,
     user: UserProfile = Depends(get_current_user)
@@ -151,8 +153,18 @@ async def update_clinician_review(
     response_model=TherapyRecommendationResponse,
     status_code=status.HTTP_201_CREATED
 )
+@router.post(
+    "/sessions/{session_id}/recommend-therapy",
+    response_model=TherapyRecommendationResponse,
+    status_code=status.HTTP_201_CREATED
+)
 @ai_alias_router.post(
     "/eye-test-sessions/{session_id}/therapy-recommendations",
+    response_model=TherapyRecommendationResponse,
+    status_code=status.HTTP_201_CREATED
+)
+@ai_alias_router.post(
+    "/eye-test-sessions/{session_id}/recommend-therapy",
     response_model=TherapyRecommendationResponse,
     status_code=status.HTTP_201_CREATED
 )
@@ -196,7 +208,15 @@ async def get_patient_therapy_recommendations(
     return TherapyRecommendationService.get_patient_recommendations(patient_id)
 
 
+@router.post(
+    "/therapy-recommendations/{recommendation_id}/review",
+    response_model=TherapyRecommendationResponse
+)
 @router.patch(
+    "/therapy-recommendations/{recommendation_id}/review",
+    response_model=TherapyRecommendationResponse
+)
+@ai_alias_router.post(
     "/therapy-recommendations/{recommendation_id}/review",
     response_model=TherapyRecommendationResponse
 )
@@ -209,10 +229,11 @@ async def review_therapy_recommendation(
     payload: ClinicianReviewAction,
     user: UserProfile = Depends(get_current_user)
 ):
+    notes = payload.clinician_notes or payload.notes
     return TherapyRecommendationService.review_recommendation(
         recommendation_id=recommendation_id,
         action=payload.action,
-        notes=payload.clinician_notes,
+        notes=notes,
         clinician_name=user.full_name or user.id
     )
 

@@ -61,6 +61,7 @@ async def get_pending_actions(
 
 
 @router.get("/patient-overview", response_model=PatientOverviewPaginationResponse)
+@router.get("/patients", response_model=PatientOverviewPaginationResponse)
 async def get_patient_overview(
     search: Optional[str] = Query(None, description="Search by patient name or ID"),
     therapy_status: Optional[str] = Query(None, description="Filter: all, not_assigned, prescribed, active, completed"),
@@ -89,6 +90,7 @@ async def get_patient_overview(
 
 
 @router.get("/recent-activity", response_model=ActivityFeedResponse)
+@router.get("/activity-feed", response_model=ActivityFeedResponse)
 async def get_recent_activity(
     limit: int = Query(20, ge=1, le=100, description="Max activities to return"),
     user: UserProfile = Depends(require_role(ALLOWED_DASHBOARD_ROLES))

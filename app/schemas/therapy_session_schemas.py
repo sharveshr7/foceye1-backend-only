@@ -5,11 +5,15 @@ VALID_EXERCISE_TYPES = {
     "fixation_target",
     "horizontal_moving_target",
     "gaze_target_selection",
-    # Allow mapping from recommendation categories
+    # Allow mapping from recommendation categories and common slugs
     "Fixation Exercise",
     "Smooth Pursuit Exercise",
     "Saccade Exercise",
     "Gaze Accuracy Exercise",
+    "smooth_pursuit",
+    "saccade",
+    "fixation",
+    "gaze_accuracy",
 }
 
 VALID_SESSION_STATUSES = {
@@ -25,6 +29,7 @@ VALID_SESSION_STATUSES = {
 
 VALID_DIFFICULTIES = {
     "beginner",
+    "medium",
     "moderate",
     "intermediate",
     "advanced",
@@ -39,8 +44,11 @@ class TherapySessionCreate(BaseModel):
     recommendation_id: Optional[str] = None
     exercise_type: str = "horizontal_moving_target"
     planned_duration_seconds: int = 300
+    duration_seconds: Optional[int] = None
     difficulty: str = "beginner"
     assigned_by: Optional[str] = None
+    is_simulated_data: bool = False
+    data_quality_status: Optional[str] = "Valid Data"
 
 
 class TherapySessionAction(BaseModel):
@@ -51,19 +59,21 @@ class TherapySessionAction(BaseModel):
 
 
 class TherapySessionResultCreate(BaseModel):
-    exercise_type: str
+    exercise_type: Optional[str] = None
     score: float = 0.0
-    accuracy: float = 0.0
+    accuracy: Optional[float] = None
+    accuracy_score: Optional[float] = None
     error_value: Optional[float] = None
     reaction_time: Optional[float] = None
+    reaction_time_ms: Optional[float] = None
     completion_percentage: float = 0.0
     valid_sample_count: int = 0
     tracking_confidence: float = 0.9
     target_loss_events: int = 0
     pause_count: int = 0
     metrics_json: Dict[str, Any] = Field(default_factory=dict)
-    data_quality_status: str = "Demo/Simulated Tracking Data"
-    is_simulated_data: bool = True
+    data_quality_status: str = "Valid Data"
+    is_simulated_data: bool = False
     clinician_notes: Optional[str] = None
 
 
@@ -96,8 +106,9 @@ class TherapySessionResponse(BaseModel):
     assigned_by: Optional[str] = None
     exercise_type: str
     session_status: str
-    planned_duration_seconds: int
-    actual_duration_seconds: int
+    planned_duration_seconds: int = 300
+    actual_duration_seconds: int = 0
+    duration_seconds: Optional[int] = None
     difficulty: str
     started_at: Optional[str] = None
     paused_at: Optional[str] = None
