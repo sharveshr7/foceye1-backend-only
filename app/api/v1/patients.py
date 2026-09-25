@@ -138,13 +138,35 @@ async def delete_patient(
     user: UserProfile = Depends(require_role(["clinician", "admin", "therapist", "hospital_staff"]))
 ):
     try:
-        # Also clean up unconstrained child telemetry records
-        try:
-            supabase.table("calibration_records").delete().eq("patient_id", patient_id).execute()
-        except Exception:
-            pass
-        res = supabase.table("patients").delete().eq("id", patient_id).execute()
+        # Verify patient exists
+        existing = supabase.table("patients").select("id").eq("id", patient_id).execute()
+        if not existing.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Patient {patient_id} not found in database"
+            )
+
+        # Clean up all dependent telemetry and clinical records
+        child_tables = [
+            "calibration_records",
+            "adaptive_therapy_configs",
+            "therapy_session_results",
+            "therapy_sessions",
+            "therapy_recommendations",
+            "ai_analyses",
+            "eye_test_results",
+            "eye_test_sessions",
+        ]
+        for tbl in child_tables:
+            try:
+                supabase.table(tbl).delete().eq("patient_id", patient_id).execute()
+            except Exception:
+                pass
+
+        supabase.table("patients").delete().eq("id", patient_id).execute()
         return None
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
