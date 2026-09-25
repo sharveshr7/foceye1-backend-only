@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS patients (
     gender TEXT NOT NULL CHECK (gender IN ('Male', 'Female', 'Other')),
     condition TEXT NOT NULL DEFAULT 'Pending Eye Test',
     icd10 TEXT DEFAULT 'H53.00',
+    hospital_id TEXT,
+    date_of_birth DATE,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    emergency_contact TEXT,
+    medical_history TEXT,
+    diagnosis TEXT,
+    notes TEXT,
     stage TEXT DEFAULT 'EYE_TEST_PENDING',
     clinical_status TEXT DEFAULT 'EYE_TEST_PENDING',
     initial_observation TEXT,
@@ -64,6 +73,15 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS initial_observation TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS observed_pattern TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS recommended_therapy TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS assigned_doctor TEXT DEFAULT 'Dr. Sarah Smith, OD';
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS hospital_id TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS emergency_contact TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS medical_history TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS diagnosis TEXT;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
 -- 3. Therapy Sessions Table (Biometric Telemetry & Performance Logs)
@@ -421,4 +439,3 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow authenticated full access on notifications" ON notifications;
 CREATE POLICY "Allow authenticated full access on notifications" ON notifications FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE INDEX IF NOT EXISTS idx_notifications_patient ON notifications(related_patient_id);
-
