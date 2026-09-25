@@ -101,6 +101,7 @@ app.include_router(ws_router)
 
 
 @app.get("/health", tags=["System Health"])
+@app.get("/api/v1/health", tags=["System Health"])
 async def health_check():
     db_health = check_supabase_connection()
     is_healthy = db_health.get("connected", False)
