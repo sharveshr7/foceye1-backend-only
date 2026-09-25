@@ -135,10 +135,21 @@ async def update_patient(
 @router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_patient(
     patient_id: str,
-    user: UserProfile = Depends(require_role(["clinician", "admin"]))
+    user: UserProfile = Depends(require_role(["clinician", "admin", "therapist", "hospital_staff"]))
 ):
-    supabase.table("patients").delete().eq("id", patient_id).execute()
-    return None
+    try:
+        # Also clean up unconstrained child telemetry records
+        try:
+            supabase.table("calibration_records").delete().eq("patient_id", patient_id).execute()
+        except Exception:
+            pass
+        res = supabase.table("patients").delete().eq("id", patient_id).execute()
+        return None
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete patient {patient_id} from Supabase: {str(e)}"
+        )
 
 
 @router.post("/{patient_id}/evaluate-adaptation")
