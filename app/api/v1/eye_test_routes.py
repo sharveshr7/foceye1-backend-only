@@ -103,6 +103,15 @@ async def get_patient_latest_result(
     return EyeTestService.get_latest_result_for_patient(patient_id)
 
 
+@router.get("/patients/{patient_id}/results", response_model=List[EyeTestResultResponse])
+async def get_patient_results(
+    patient_id: str,
+    user: UserProfile = Depends(get_current_user)
+):
+    return EyeTestService.get_results_for_patient(patient_id)
+
+
+
 # AI-Assisted Eye Test Analysis Endpoints
 @router.post("/sessions/{session_id}/ai-analysis", response_model=AIAnalysisResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/sessions/{session_id}/analyze", response_model=AIAnalysisResponse, status_code=status.HTTP_201_CREATED)

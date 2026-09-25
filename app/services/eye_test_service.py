@@ -201,3 +201,12 @@ class EyeTestService:
         # Sort newest first
         results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
         return results[0]
+
+    @staticmethod
+    def get_results_for_patient(patient_id: str) -> List[Dict[str, Any]]:
+        EyeTestService._verify_patient(patient_id)
+        res = supabase.table("eye_test_results").select("*").eq("patient_id", patient_id).execute()
+        results = res.data or []
+        results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        return results
+

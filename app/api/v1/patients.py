@@ -72,13 +72,21 @@ async def create_patient(
         "stage", "clinical_status", "initial_observation",
         "observed_pattern", "recommended_therapy", "assigned_doctor",
         "adherence", "last_session", "visual_acuity_left",
-        "visual_acuity_right", "bcea_score", "created_at", "hospital_name"
+        "visual_acuity_right", "bcea_score", "created_at", "hospital_name",
+        "hospital_id", "date_of_birth", "phone", "email", "address",
+        "emergency_contact", "medical_history", "diagnosis", "notes"
     }
     insert_payload = {k: v for k, v in patient_dict.items() if k in db_columns}
+    if insert_payload.get("date_of_birth") and hasattr(insert_payload["date_of_birth"], "isoformat"):
+        insert_payload["date_of_birth"] = insert_payload["date_of_birth"].isoformat()
     try:
         supabase.table("patients").insert(insert_payload).execute()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(f"Failed to persist patient {patient_dict['id']} to Supabase: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to persist patient to Supabase: {str(exc)}"
+        )
     return patient_dict
 
 
@@ -105,27 +113,31 @@ async def update_patient(
         "stage", "clinical_status", "initial_observation",
         "observed_pattern", "recommended_therapy", "assigned_doctor",
         "adherence", "last_session", "visual_acuity_left",
-        "visual_acuity_right", "bcea_score"
+        "visual_acuity_right", "bcea_score", "hospital_id",
+        "date_of_birth", "phone", "email", "address",
+        "emergency_contact", "medical_history", "diagnosis", "notes"
     }
     db_update = {k: v for k, v in update_data.items() if k in db_columns}
+    if db_update.get("date_of_birth") and hasattr(db_update["date_of_birth"], "isoformat"):
+        db_update["date_of_birth"] = db_update["date_of_birth"].isoformat()
+
     if db_update:
         try:
             supabase.table("patients").update(db_update).eq("id", patient_id).execute()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.error(f"Failed to update patient {patient_id} in Supabase: {exc}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update patient in Supabase: {str(exc)}"
+            )
 
     # Fetch updated record
     try:
         updated = supabase.table("patients").select("*").eq("id", patient_id).execute()
         if updated.data and len(updated.data) > 0:
-            row = updated.data[0]
-            # Merge any client-tracked fields
-            for k, v in update_data.items():
-                if k not in row:
-                    row[k] = v
-            return row
-    except Exception:
-        pass
+            return updated.data[0]
+    except Exception as exc:
+        logger.warning(f"Failed to re-fetch updated patient {patient_id}: {exc}")
 
     # Fallback to merging existing record with update_data
     merged = {**existing_res.data[0], **update_data}
